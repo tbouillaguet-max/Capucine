@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Point d'entrée de Capucine.
 
+    python main.py                        # mode vocal : [Entrée] pour parler
     python main.py --text                 # boucle clavier, sans micro ni haut-parleur
     python main.py --text --llm mock      # sans aucun modèle de langage
-    python main.py --text --once "quelle heure est-il"
-    python main.py                        # mode vocal (étapes 2 et 3)
+    python main.py --wav-in essai.wav     # rejoue un fichier : un tour, sans micro
+    python main.py --devices              # inventaire des périphériques audio
 """
 
 from __future__ import annotations
@@ -16,10 +17,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from capucine.app import build_assistant, run_text_mode  # noqa: E402
+from capucine.app import build_assistant, run_text_mode, run_voice_mode  # noqa: E402
+from capucine.core.audio import list_devices  # noqa: E402
 from capucine.core.config import load_config  # noqa: E402
-from capucine.core.errors import CapucineError  # noqa: E402
-from capucine.core.logging import get_logger, setup_logging  # noqa: E402
+from capucine.core.errors import CapucineError, EngineUnavailable  # noqa: E402
+from capucine.core.logging import setup_logging  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -37,8 +39,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="fichier TOML supplémentaire, appliqué par-dessus le profil")
     parser.add_argument("--llm", metavar="MOTEUR",
                         help="remplace llm.engine : ollama, llamacpp ou mock")
+    parser.add_argument("--stt", metavar="MOTEUR",
+                        help="remplace stt.engine : faster-whisper, vosk ou scripted")
+    parser.add_argument("--tts", metavar="MOTEUR",
+                        help="remplace tts.engine : piper ou silent")
     parser.add_argument("--plugins", metavar="DOSSIER", action="append",
                         help="dossier de plugins supplémentaire (répétable)")
+
+    audio = parser.add_argument_group("audio")
+    audio.add_argument("--devices", action="store_true",
+                       help="liste les périphériques audio puis quitte")
+    audio.add_argument("--wav-in", metavar="FICHIER",
+                       help="rejoue un WAV 16 bits mono au lieu du micro, un seul tour")
+    audio.add_argument("--wav-out", metavar="FICHIER",
+                       help="écrit la parole dans un WAV au lieu du haut-parleur")
+    audio.add_argument("--muet", action="store_true",
+                       help="ne joue aucun son (mesure de latence sans lecture)")
+
     parser.add_argument("--log-level", default=None,
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--json-logs", action="store_true",
@@ -50,6 +67,10 @@ def build_overrides(args: argparse.Namespace) -> dict:
     overrides: dict = {}
     if args.llm:
         overrides.setdefault("llm", {})["engine"] = args.llm
+    if args.stt:
+        overrides.setdefault("stt", {})["engine"] = args.stt
+    if args.tts:
+        overrides.setdefault("tts", {})["engine"] = args.tts
     if args.plugins:
         overrides.setdefault("plugins", {})["paths"] = list(args.plugins)
     if args.log_level:
@@ -67,17 +88,19 @@ async def _run(args: argparse.Namespace) -> int:
         level=str(config.get("logging.level", "INFO")),
         json_logs=bool(config.get("logging.json", False)),
     )
-    logger = get_logger("main")
 
-    assistant = build_assistant(config)
+    mode_texte = args.text or bool(args.once)
+    assistant = build_assistant(
+        config,
+        voice=not mode_texte,
+        wav_in=args.wav_in,
+        wav_out=args.wav_out,
+        silent_output=args.muet,
+    )
     try:
-        if args.text or args.once:
+        if mode_texte:
             return await run_text_mode(assistant, once=args.once)
-        logger.error(
-            "Le mode vocal arrive à l'étape 2 (STT/TTS) et à l'étape 3 (mot d'éveil). "
-            "Utilisez « python main.py --text » en attendant."
-        )
-        return 2
+        return await run_voice_mode(assistant, once=bool(args.wav_in))
     finally:
         await assistant.aclose()
 
@@ -85,8 +108,14 @@ async def _run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     setup_logging(level=args.log_level or "INFO", json_logs=args.json_logs)
+    if args.devices:
+        print(list_devices())
+        return 0
     try:
         return asyncio.run(_run(args))
+    except EngineUnavailable as exc:
+        print(f"Étage audio indisponible : {exc}", file=sys.stderr)
+        return 3
     except CapucineError as exc:
         print(f"Erreur de configuration : {exc}", file=sys.stderr)
         return 2

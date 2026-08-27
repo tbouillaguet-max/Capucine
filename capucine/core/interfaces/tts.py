@@ -5,28 +5,19 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
-from dataclasses import dataclass
 
+from ..audio import AudioChunk
 
-@dataclass
-class AudioChunk:
-    """Un morceau de parole prêt à être joué."""
-
-    pcm: bytes           # PCM entiers signés 16 bits, mono, petit-boutiste
-    sample_rate: int
-    text: str = ""       # le fragment de texte correspondant, pour le journal
-
-    @property
-    def duration_s(self) -> float:
-        return len(self.pcm) / 2 / self.sample_rate if self.sample_rate else 0.0
+__all__ = ["AudioChunk", "TTSEngine"]
 
 
 class TTSEngine(ABC):
     """Contrat minimal d'un moteur de synthèse vocale local.
 
-    La synthèse est exposée en flux de morceaux, phrase par phrase : c'est ce
-    qui permet de commencer à parler avant la fin de la génération, et de
-    s'arrêter net au milieu quand l'utilisateur coupe la parole (barge-in).
+    La synthèse est exposée en **flux de morceaux, une phrase par morceau**.
+    C'est ce qui permet de commencer à parler avant la fin de la génération —
+    et, à l'étape 3, de s'arrêter net entre deux phrases quand l'utilisateur
+    coupe la parole.
     """
 
     name: str = "tts"
@@ -37,9 +28,9 @@ class TTSEngine(ABC):
 
     @abstractmethod
     def synthesize(self, text: str, cancel: threading.Event | None = None) -> Iterator[AudioChunk]:
-        """Produit la parole correspondant à ``text``, morceau par morceau.
+        """Produit la parole correspondant à ``text``, phrase par phrase.
 
-        L'implémentation doit consulter ``cancel`` entre deux morceaux et
+        L'implémentation doit consulter ``cancel`` avant chaque phrase et
         s'arrêter dès qu'il est armé.
         """
 
@@ -48,3 +39,6 @@ class TTSEngine(ABC):
 
     def close(self) -> None:
         ...
+
+    def describe(self) -> str:
+        return self.name

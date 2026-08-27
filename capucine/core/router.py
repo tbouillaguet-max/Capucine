@@ -19,7 +19,7 @@ c'est pire. D'où ce routage :
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -186,6 +186,16 @@ class Router:
             Message(role="user", content=utterance),
         ]
         return self.llm.chat(messages, temperature=0.6, max_tokens=200).strip()
+
+    def stream_answer(self, utterance: str, history: list[Message], system: str) -> Iterator[str]:
+        """Même réponse, mais en flux : la synthèse peut commencer à parler
+        dès la première phrase terminée, sans attendre la fin de l'inférence."""
+        messages = [
+            Message(role="system", content=system),
+            *history,
+            Message(role="user", content=utterance),
+        ]
+        yield from self.llm.stream(messages, temperature=0.6, max_tokens=200)
 
     # -- orchestration ------------------------------------------------------
     def route(

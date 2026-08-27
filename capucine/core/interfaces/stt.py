@@ -1,13 +1,16 @@
-"""Interface de transcription."""
+"""Interface de transcription.
+
+L'entrée est un ``AudioBuffer`` (PCM 16 bits mono), pas un tableau numpy :
+c'est ce qui circule depuis le micro, et c'est au moteur — qui dépend de
+numpy de toute façon — de faire la conversion s'il en a besoin.
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:  # pragma: no cover - typage seul, aucun import à l'exécution
-    import numpy as np
+from ..audio import AudioBuffer
 
 
 @dataclass
@@ -22,25 +25,29 @@ class Transcription:
 
 
 class STTEngine(ABC):
-    """Contrat minimal d'un moteur de reconnaissance vocale local."""
+    """Contrat minimal d'un moteur de reconnaissance vocale local.
+
+    Changer de moteur — ``faster-whisper`` sur PC, Vosk sur Raspberry Pi — est
+    une ligne de configuration. Un moteur ``whisper.cpp`` se brancherait ici
+    sans que le pipeline en sache rien.
+    """
 
     name: str = "stt"
 
     @abstractmethod
     def available(self) -> bool:
-        """Ne lève jamais."""
+        """Ne lève jamais : un moteur absent est un état, pas une erreur."""
 
     @abstractmethod
-    def transcribe(self, audio: np.ndarray | Any, sample_rate: int) -> Transcription:
-        """Transcrit un extrait audio.
-
-        Args:
-            audio: PCM mono en float32, valeurs dans [-1, 1].
-            sample_rate: Fréquence d'échantillonnage de ``audio``.
-        """
+    def transcribe(self, audio: AudioBuffer) -> Transcription:
+        """Transcrit un extrait audio capté."""
 
     def warmup(self) -> None:
-        """Charge le modèle et fait une passe à vide."""
+        """Charge le modèle et fait une passe à vide, pour ne pas payer le
+        chargement devant l'utilisateur."""
 
     def close(self) -> None:
         ...
+
+    def describe(self) -> str:
+        return self.name

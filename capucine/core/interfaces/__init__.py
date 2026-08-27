@@ -7,14 +7,21 @@ dans ``capucine.core.engines`` et sont importées paresseusement, d'après la
 configuration.
 """
 
+from ..audio import AudioBuffer, AudioChunk
 from .llm import LLMEngine, Message, ToolCall
 from .stt import STTEngine, Transcription
 from .tts import TTSEngine
 from .wake import WakeEvent, WakeWordEngine
 
 __all__ = [
-    "LLMEngine", "Message", "ToolCall",
-    "STTEngine", "Transcription",
+    "AudioBuffer",
+    "AudioChunk",
+    "LLMEngine",
+    "Message",
+    "ToolCall",
+    "STTEngine",
+    "Transcription",
     "TTSEngine",
-    "WakeWordEngine", "WakeEvent",
+    "WakeWordEngine",
+    "WakeEvent",
 ]

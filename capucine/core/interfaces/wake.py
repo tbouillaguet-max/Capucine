@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:  # pragma: no cover
-    import numpy as np
 
 
 @dataclass
@@ -41,8 +37,9 @@ class WakeWordEngine(ABC):
         """Ne lève jamais."""
 
     @abstractmethod
-    def process(self, frame: np.ndarray | Any) -> WakeEvent | None:
-        """Consomme une trame et retourne un événement si le mot est détecté."""
+    def process(self, frame: bytes) -> WakeEvent | None:
+        """Consomme une trame PCM 16 bits et retourne un événement si le mot
+        d'éveil est détecté."""
 
     def reset(self) -> None:
         """Vide l'état interne, après un déclenchement par exemple."""

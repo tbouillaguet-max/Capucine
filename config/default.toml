@@ -42,16 +42,29 @@ shortlist_size = 5
 number_extraction = true    # « à vingt faces » -> faces=20, sans solliciter le modèle
 
 [stt]
-engine = "faster-whisper"   # étape 2
-model = "small"
-device = "auto"
-compute_type = "auto"
+engine = "faster-whisper"   # faster-whisper | vosk | scripted
+model = "small"             # tiny | base | small | medium | large-v3
+device = "auto"             # auto | cpu | cuda
+compute_type = "auto"       # auto | int8 | int8_float16 | float16 | float32
 language = "fr"
+beam_size = 5
+cpu_threads = 0             # 0 = laisser CTranslate2 décider
+models_dir = "models/whisper"
+# Whisper invente des phrases sur du silence. On ne l'appelle même pas
+# en dessous de ce niveau sonore, et on écarte les formules connues.
+min_rms = 0.006
+min_duration_s = 0.25
+drop_hallucinations = true
+vad_filter = false          # le VAD du pipeline s'en charge (étape 3)
+# Amorce le vocabulaire : sans elle, « Capucine » devient « capucin » ou « ca pue ».
+initial_prompt = "Capucine, assistante vocale. Minuteur, notes, météo, volume, heure."
 
 [tts]
-engine = "piper"            # étape 2
+engine = "piper"            # piper | silent
 voice = "fr_FR-siwis-medium"
-speed = 1.0
+models_dir = "models/piper"
+speed = 1.0                 # > 1 = plus rapide
+volume = 1.0
 
 [wake]
 engine = "openwakeword"     # étape 3, repli « vosk » si le modèle n'est pas entraîné

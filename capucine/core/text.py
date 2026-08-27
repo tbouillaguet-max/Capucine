@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable, Iterator
 
 __all__ = [
+    "split_sentences",
+    "stream_sentences",
     "strip_accents",
     "normalize",
     "tokenize",
@@ -166,3 +169,139 @@ def similarity(left: str, right: str) -> float:
         f1 = 0.0
     ratio = SequenceMatcher(None, normalize(left), normalize(right)).ratio()
     return 0.7 * f1 + 0.3 * ratio
+
+
+# --- découpage en phrases --------------------------------------------------
+
+# La synthèse se fait phrase par phrase : c'est l'unité que Piper produit, et
+# celle à laquelle on peut s'interrompre proprement. Encore faut-il ne pas
+# couper au milieu de « M. Dupont » ou de « 3.5 ».
+# Seuls les *titres* et abréviations qui introduisent toujours autre chose
+# bloquent la coupure : « M. Dupont » n'est pas une fin de phrase. « etc. » en
+# est une la plupart du temps, et une coupure ratée coûte moins cher qu'une
+# coupure au milieu d'un nom propre.
+_TITRES = {
+    "m", "mm", "mme", "mlle", "mr", "dr", "pr", "st", "ste",
+    "av", "bd", "no", "n", "art", "env",
+}
+_FIN_DE_PHRASE = ".!?\u2026"
+_FERMANTS = '"\u00bb)]'
+
+
+def _points_de_coupe(text: str) -> list[int]:
+    """Indices exclusifs où une phrase se termine, dans le texte **brut**.
+
+    Travailler sur des décalages plutôt que sur des morceaux découpés est ce
+    qui permet au flux (``stream_sentences``) de ne perdre aucune espace.
+    """
+    coupes: list[int] = []
+    i = 0
+    longueur = len(text)
+    while i < longueur:
+        caractere = text[i]
+        if caractere == "\n" and text[i + 1 : i + 2] == "\n":
+            coupes.append(i + 1)
+            i += 2
+            continue
+        if caractere in _FIN_DE_PHRASE:
+            # « ... », « ?! » : une seule fin de phrase.
+            while i + 1 < longueur and text[i + 1] in _FIN_DE_PHRASE:
+                i += 1
+            fin = i + 1
+            # On emporte un guillemet ou une parenthèse fermante.
+            while fin < longueur and text[fin] in _FERMANTS:
+                fin += 1
+            suivant = text[fin : fin + 1]
+            if suivant in ("", " ", "\n", "\t") and (
+                caractere != "." or _fin_reelle(text, i, text[i + 1 : i + 2])
+            ):
+                coupes.append(fin)
+                i = fin
+                continue
+        i += 1
+    return coupes
+
+
+def _fin_reelle(text: str, position: int, suivant: str) -> bool:
+    """Un point termine-t-il vraiment la phrase ?"""
+    precedent = text[position - 1 : position]
+    if precedent.isdigit() and suivant[:1].isdigit():
+        return False  # « 3.5 »
+    debut = position - 1
+    while debut >= 0 and (text[debut].isalpha() or text[debut] == "'"):
+        debut -= 1
+    mot = strip_accents(text[debut + 1 : position]).lower()
+    return mot not in _TITRES  # « M. Dupont »
+
+
+def split_sentences(text: str, min_chars: int = 1) -> list[str]:
+    """Découpe un texte en phrases, à la française.
+
+    Args:
+        text: Le texte à découper.
+        min_chars: Longueur en dessous de laquelle un fragment est recollé au
+            précédent, pour ne pas payer une synthèse entière pour « Ah ».
+    """
+    coupes = [*_points_de_coupe(text), len(text)]
+    morceaux: list[str] = []
+    precedent = 0
+    for coupe in coupes:
+        if coupe > precedent:
+            morceaux.append(text[precedent:coupe])
+            precedent = coupe
+
+    resultat: list[str] = []
+    attente = ""
+    for morceau in (m.strip() for m in morceaux):
+        if not morceau:
+            continue
+        if attente:
+            morceau = f"{attente} {morceau}"
+            attente = ""
+        if len(morceau) < min_chars or not any(c.isalnum() for c in morceau):
+            # Trop court pour mériter sa propre synthèse : on le recolle au
+            # précédent s'il y en a un, sinon au suivant.
+            if resultat:
+                resultat[-1] = f"{resultat[-1]} {morceau}"
+            else:
+                attente = morceau
+            continue
+        resultat.append(morceau)
+    if attente:
+        resultat.append(attente)
+    return resultat
+
+
+def stream_sentences(morceaux: Iterable[str], min_chars: int = 1) -> Iterator[str]:
+    """Transforme un flux de fragments en flux de phrases complètes.
+
+    C'est ce qui permet de commencer à parler pendant que le modèle écrit
+    encore : dès qu'une phrase est terminée, elle part à la synthèse, et la
+    première parole sort bien avant la fin de l'inférence.
+    """
+    tampon = ""
+    attente = ""
+    for morceau in morceaux:
+        if not morceau:
+            continue
+        tampon += morceau
+        coupes = _points_de_coupe(tampon)
+        if not coupes:
+            continue
+        precedent = 0
+        for coupe in coupes:
+            phrase = tampon[precedent:coupe].strip()
+            precedent = coupe
+            if not phrase:
+                continue
+            phrase = f"{attente} {phrase}".strip() if attente else phrase
+            if len(phrase) < min_chars or not any(c.isalnum() for c in phrase):
+                attente = phrase
+                continue
+            attente = ""
+            yield phrase
+        tampon = tampon[precedent:]
+
+    reste = f"{attente} {tampon}".strip() if attente else tampon.strip()
+    if reste:
+        yield reste

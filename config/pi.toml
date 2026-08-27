@@ -11,9 +11,12 @@ num_ctx = 2048
 direct_threshold = 0.65
 
 [stt]
-model = "tiny"
+# Sur Pi, « base » reste tenable ; passez à « vosk » si la latence dépasse
+# la seconde et demie.
+model = "base"
 device = "cpu"
 compute_type = "int8"
+beam_size = 1               # le faisceau coûte cher et n'apporte presque rien ici
 
 [tts]
 voice = "fr_FR-siwis-medium"

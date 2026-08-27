@@ -8,6 +8,7 @@ num_ctx = 8192
 [stt]
 model = "small"
 device = "auto"
+compute_type = "auto"
 
 [plugins]
 timeout = 10.0

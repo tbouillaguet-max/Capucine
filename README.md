@@ -7,8 +7,10 @@ La contrainte qui prime sur toutes les autres décisions d'architecture :
 **ajouter une capacité, c'est déposer un fichier Python dans `plugins/`.** Sans
 redémarrer l'assistante, et sans jamais toucher au cœur.
 
-> **État : étape 1 sur 5 terminée.** La boucle « phrase → choix d'outil →
-> plugin → réponse » fonctionne en mode texte. L'audio arrive aux étapes 2 et 3.
+> **État : étape 2 sur 5 terminée.** La chaîne vocale complète fonctionne —
+> micro, transcription, choix d'outil, plugin, synthèse, haut-parleur — et se
+> déclenche au clavier. Le mot d'éveil « Capucine » et le barge-in arrivent à
+> l'étape 3.
 
 ---
 
@@ -58,19 +60,58 @@ pip install -e ".[llm-llamacpp]"
 #   n_gpu_layers = 35
 ```
 
+### Ajouter la voix
+
+```bash
+pip install -e ".[audio]"
+python -m capucine.core.downloads tout        # voix Piper + modèle Whisper
+python main.py                                # [Entrée] pour parler
+```
+
+Sous Linux, `sounddevice` réclame PortAudio : `sudo apt install libportaudio2`.
+Sur Raspberry Pi, ajoutez `--profile pi` (modèle Whisper plus petit, faisceau
+de recherche réduit) ; si la transcription dépasse la seconde et demie, passez
+à Vosk :
+
+```bash
+pip install -e ".[vosk]"
+python -m capucine.core.downloads vosk
+python main.py --profile pi --stt vosk
+```
+
+Rien n'est téléchargé automatiquement au démarrage : un assistant censé
+fonctionner le Wi-Fi coupé ne sort pas sur le réseau sans qu'on le lui demande.
+
 ---
 
 ## Utilisation
 
 ```bash
+python main.py                              # mode vocal : [Entrée] pour parler
 python main.py --text                       # boucle clavier
 python main.py --text --llm mock            # sans modèle de langage
 python main.py --text --once "12 * 8"       # une phrase, puis on quitte
-python main.py --text --profile pi          # forcer un profil
-python main.py --text --json-logs           # journal en JSON, une ligne par événement
+python main.py --profile pi                 # forcer un profil
+python main.py --json-logs                  # journal en JSON, une ligne par événement
 ```
 
-Dans la boucle : `/aide` `/competences` `/plugins` `/recharge` `/oublie` `/quitter`.
+Dans les deux modes : `/aide` `/competences` `/plugins` `/recharge` `/oublie`
+`/quitter`. En mode vocal, une ligne vide déclenche l'écoute et tout autre
+texte est traité comme si vous l'aviez dit — pratique pour éprouver la synthèse
+sans parler à sa machine.
+
+### Sans micro ni haut-parleur
+
+Toute la chaîne vocale se pilote par fichiers, ce qui la rend testable en
+intégration continue comme sur une machine sans carte son :
+
+```bash
+python main.py --devices                    # inventaire des périphériques
+python main.py --wav-in essai.wav           # rejoue un WAV 16 bits mono, un tour
+python main.py --wav-out reponse.wav        # écrit la parole au lieu de la jouer
+python main.py --stt scripted --tts silent  # ni transcription ni voix réelles
+python main.py --muet                       # ne joue rien : mesure de latence pure
+```
 
 ---
 
@@ -144,15 +185,20 @@ capucine/
 ├── app.py                  assemblage config → registre → routeur → pipeline
 └── core/
     ├── pipeline.py         machine à états (asyncio)
+    ├── audio.py            un seul point d'entrée/sortie, sans dépendance
     ├── registry.py         découverte, chargement, isolation des pannes
     ├── router.py           choix de l'outil, trois étages
     ├── schema.py           signature Python → JSON Schema
     ├── plugin.py           @skill et contrat public
     ├── config.py           TOML en couches
     ├── conversation.py     persona + mémoire courte
-    ├── text.py             normalisation, nombres français
+    ├── downloads.py        récupération explicite des poids
+    ├── text.py             normalisation, nombres français, découpage en phrases
     ├── interfaces/         ABC seulement, aucune dépendance lourde
     └── engines/            implémentations, importées paresseusement
+        ├── llm/            mock, ollama, llamacpp
+        ├── stt/            faster-whisper, vosk, scripted
+        └── tts/            piper, silent
 plugins/                    ← LE dossier
 config/                     default.toml, pc.toml, pi.toml, persona.txt
 ```
@@ -178,6 +224,27 @@ La sortie structurée passe par le décodage contraint (`format=<schéma>` avec
 Ollama, grammaire GBNF avec llama.cpp), jamais par l'API de *function calling*
 native : c'est le seul mécanisme identique sur les deux backends.
 
+### La chaîne vocale
+
+Le transport audio parle en **PCM 16 bits mono** de bout en bout — le format
+natif de `sounddevice` comme de Piper. La conversion en flottants n'a lieu qu'à
+la frontière de Whisper, qui dépend de numpy de toute façon. `core/audio.py`
+n'a donc aucune dépendance et s'importe sur une machine nue ; `sounddevice`
+n'est chargé qu'à l'ouverture d'un flux réel.
+
+**La synthèse est diffusée phrase par phrase.** Dès qu'une phrase est complète
+dans le flux du modèle, elle part à Piper puis au haut-parleur, pendant que le
+modèle écrit la suivante. Le découpage évite de couper « M. Dupont » ou
+« 3.5 », et chaque phrase est un point d'interruption propre — c'est ce sur
+quoi le barge-in de l'étape 3 viendra se brancher.
+
+**Whisper invente des phrases sur du silence** — « Sous-titrage Société
+Radio-Canada » est la plus célèbre. Avec un assistant déclenché à la voix, cela
+donne des commandes fantômes. On ne l'appelle donc pas en dessous d'un certain
+niveau sonore, on écarte une courte liste de formules connues, et on désactive
+`condition_on_previous_text`, qui fait boucler le modèle sur des énoncés
+courts.
+
 ### Configuration
 
 Quatre couches, de la plus faible à la plus forte :
@@ -199,7 +266,10 @@ CAPUCINE_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
 python -m pytest
 ```
 
-87 tests, aucun modèle téléchargé, aucun périphérique audio requis.
+136 tests, aucun modèle téléchargé, aucun périphérique audio requis. La chaîne
+vocale est éprouvée avec des doublures en mémoire ; les adaptateurs Piper et
+faster-whisper sont en plus vérifiés contre les **signatures réelles** des
+bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suite.
 
 ---
 
@@ -208,7 +278,7 @@ python -m pytest
 | Étape | Contenu | État |
 |---|---|---|
 | 1 | Squelette, config, interfaces, registre de plugins, routeur, mode texte | **fait** |
-| 2 | STT (`faster-whisper`) + TTS (`piper`), pipeline vocal au clavier | à venir |
+| 2 | STT (`faster-whisper`, Vosk) + TTS (`piper`), pipeline vocal au clavier | **fait** |
 | 3 | Mot d'éveil « Capucine » (`openWakeWord`), VAD (`silero`), barge-in | à venir |
 | 4 | Rechargement à chaud (`watchdog`), plugins d'exemple (heure, minuteur, notes, système) | à venir |
 | 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | à venir |

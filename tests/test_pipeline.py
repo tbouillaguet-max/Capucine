@@ -88,7 +88,7 @@ def test_les_etats_sont_traverses_dans_l_ordre(ecrire_plugin, dossier_plugins) -
 
     asyncio.run(pipeline.handle_and_speak("quelle heure est-il"))
 
-    assert etats == [State.THINK, State.ACT, State.IDLE, State.SPEAK, State.IDLE]
+    assert etats == [State.THINK, State.ACT, State.SPEAK, State.IDLE]
     assert pipeline.state is State.IDLE
 
 

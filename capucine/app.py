@@ -7,13 +7,23 @@ cœur n'en voit qu'un.
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass
 from typing import Any
 
+from .core.audio import AudioInput, AudioOutput
 from .core.config import Config
 from .core.conversation import Conversation, load_persona
-from .core.engines.factory import build_llm
+from .core.engines.factory import (
+    build_audio_input,
+    build_audio_output,
+    build_llm,
+    build_stt,
+    build_tts,
+)
 from .core.interfaces.llm import LLMEngine
+from .core.interfaces.stt import STTEngine
+from .core.interfaces.tts import TTSEngine
 from .core.logging import get_logger
 from .core.pipeline import Pipeline
 from .core.registry import PluginRegistry
@@ -30,13 +40,34 @@ class Assistant:
     router: Router
     conversation: Conversation
     pipeline: Pipeline
+    stt: STTEngine | None = None
+    tts: TTSEngine | None = None
+    audio_in: AudioInput | None = None
+    audio_out: AudioOutput | None = None
 
     async def aclose(self) -> None:
         await self.pipeline.aclose()
         self.llm.close()
 
 
-def build_assistant(config: Config, llm: LLMEngine | None = None) -> Assistant:
+def build_assistant(
+    config: Config,
+    llm: LLMEngine | None = None,
+    *,
+    voice: bool = False,
+    stt: STTEngine | None = None,
+    tts: TTSEngine | None = None,
+    audio_in: AudioInput | None = None,
+    audio_out: AudioOutput | None = None,
+    wav_in: str | None = None,
+    wav_out: str | None = None,
+    silent_output: bool = False,
+) -> Assistant:
+    """Monte l'assistant. ``voice=True`` ajoute les étages audio.
+
+    Les moteurs passés explicitement l'emportent : c'est ce qui permet aux
+    tests de dérouler tout le chemin vocal avec des doublures.
+    """
     engine = llm if llm is not None else build_llm(config)
 
     router_options = config.section("llm").get("router", {}) or {}
@@ -61,28 +92,44 @@ def build_assistant(config: Config, llm: LLMEngine | None = None) -> Assistant:
         quarantine_after=int(config.get("plugins.quarantine_after", 3)),
     )
 
+    if voice:
+        stt = stt if stt is not None else build_stt(config)
+        tts = tts if tts is not None else build_tts(config)
+        audio_in = audio_in if audio_in is not None else build_audio_input(config, wav=wav_in)
+        if audio_out is None:
+            audio_out = build_audio_output(config, wav=wav_out, silent=silent_output)
+
     pipeline = Pipeline(
         registry,
         router,
         conversation,
+        stt=stt,
+        tts=tts,
+        audio_in=audio_in,
+        audio_out=audio_out,
         announce_new_skills=bool(config.get("assistant.announce_new_skills", True)),
+        max_utterance_s=float(config.get("vad.max_utterance_s", 20.0)),
     )
+
     registry.load_all()
     # Le rappel n'est branché qu'APRÈS le chargement initial : annoncer à voix
     # haute les vingt compétences déjà présentes au démarrage n'a aucun sens.
     # Le registre prévient le pipeline, qui décide quoi annoncer — le registre
     # n'a pas à savoir que Capucine a une voix.
     registry.on_change = pipeline.notify_skill_change
+
     return Assistant(
         config=config, llm=engine, registry=registry, router=router,
         conversation=conversation, pipeline=pipeline,
+        stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
     )
 
 
-# --- mode texte ------------------------------------------------------------
+# --- commandes communes aux deux modes -------------------------------------
 
 AIDE = """Commandes : /aide  /competences  /plugins  /recharge  /oublie  /quitter
-Tout le reste est traité comme une phrase adressée à Capucine."""
+En mode vocal, une ligne vide déclenche l'écoute ; tout autre texte est traité
+comme si vous l'aviez dit."""
 
 
 def _format_skills(assistant: Assistant) -> str:
@@ -110,44 +157,6 @@ def _format_plugins(assistant: Assistant) -> str:
     return "Plugins :\n" + "\n".join(lines)
 
 
-async def run_text_mode(assistant: Assistant, once: str | None = None) -> int:
-    """Boucle clavier : court-circuite micro et haut-parleur.
-
-    C'est le mode de développement : il prouve la boucle LLM + plugins sans
-    qu'une seule ligne d'audio soit nécessaire.
-    """
-    assistant.pipeline.attach()
-    try:
-        if once is not None:
-            result = await assistant.pipeline.handle_and_speak(once)
-            return 0 if (result.skill_result is None or result.skill_result.ok) else 1
-
-        print(f"Capucine — mode texte ({assistant.llm.describe()}, profil "
-              f"{assistant.config.get('profile')}). /aide pour les commandes.")
-        if assistant.llm.name == "mock":
-            print("Moteur factice : le routage déterministe fonctionne, la conversation "
-                  "libre non. Formulez les commandes au plus près des exemples des plugins.")
-        print(_format_skills(assistant))
-        for record in assistant.registry.failures():
-            print(f"  ! plugin ignoré : {record.name} — {record.error}")
-
-        while True:
-            try:
-                line = (await asyncio.to_thread(input, "\nVous  › ")).strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                return 0
-            if not line:
-                continue
-            if line.startswith("/"):
-                if _handle_command(assistant, line):
-                    return 0
-                continue
-            await assistant.pipeline.handle_and_speak(line)
-    finally:
-        assistant.pipeline.detach()
-
-
 def _handle_command(assistant: Assistant, line: str) -> bool:
     """Retourne True s'il faut quitter."""
     command = line.split()[0].lower()
@@ -170,10 +179,149 @@ def _handle_command(assistant: Assistant, line: str) -> bool:
     return False
 
 
+def _annoncer_demarrage(assistant: Assistant) -> None:
+    print(_format_skills(assistant))
+    for record in assistant.registry.failures():
+        print(f"  ! plugin ignoré : {record.name} — {record.error}")
+
+
+# --- mode texte ------------------------------------------------------------
+
+async def run_text_mode(assistant: Assistant, once: str | None = None) -> int:
+    """Boucle clavier : court-circuite micro et haut-parleur.
+
+    C'est le mode de développement : il prouve la boucle LLM + plugins sans
+    qu'une seule ligne d'audio soit nécessaire.
+    """
+    assistant.pipeline.attach()
+    try:
+        if once is not None:
+            result = await assistant.pipeline.handle_and_speak(once)
+            return 0 if (result.skill_result is None or result.skill_result.ok) else 1
+
+        print(f"Capucine — mode texte ({assistant.llm.describe()}, profil "
+              f"{assistant.config.get('profile')}). /aide pour les commandes.")
+        if assistant.llm.name == "mock":
+            print("Moteur factice : le routage déterministe fonctionne, la conversation "
+                  "libre non. Formulez les commandes au plus près des exemples des plugins.")
+        _annoncer_demarrage(assistant)
+
+        while True:
+            try:
+                line = (await asyncio.to_thread(input, "\nVous  › ")).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return 0
+            if not line:
+                continue
+            if line.startswith("/"):
+                if _handle_command(assistant, line):
+                    return 0
+                continue
+            await assistant.pipeline.handle_and_speak(line)
+    finally:
+        assistant.pipeline.detach()
+
+
+# --- mode vocal ------------------------------------------------------------
+
+class _LecteurClavier:
+    """Un seul thread lit l'entrée standard, pour la durée de la session.
+
+    Ouvrir un ``input()`` par attente laisserait des threads bloqués derrière
+    soi dès qu'une capture se termine d'elle-même : le thread suivant avalerait
+    la frappe destinée au tour d'après.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop = loop
+        self.lignes: asyncio.Queue[str | None] = asyncio.Queue()
+        self._thread = threading.Thread(target=self._lire, name="clavier", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _lire(self) -> None:
+        while True:
+            try:
+                ligne = input()
+            except (EOFError, KeyboardInterrupt):
+                self.loop.call_soon_threadsafe(self.lignes.put_nowait, None)
+                return
+            self.loop.call_soon_threadsafe(self.lignes.put_nowait, ligne)
+
+    async def prochaine(self) -> str | None:
+        return await self.lignes.get()
+
+
+async def run_voice_mode(assistant: Assistant, once: bool = False) -> int:
+    """Chaîne vocale complète, déclenchée au clavier.
+
+    Étape 2 : « appuie pour parler ». L'étape 3 remplacera ce déclencheur par
+    le mot d'éveil et terminera l'énoncé au VAD — le reste ne bougera pas.
+    """
+    pipeline = assistant.pipeline
+    pipeline.attach()
+    try:
+        print(f"Capucine — mode vocal ({assistant.llm.describe()}, "
+              f"{assistant.stt.describe() if assistant.stt else 'sans oreille'}, "
+              f"{assistant.tts.describe() if assistant.tts else 'sans voix'}).")
+        if not pipeline.has_voice:
+            print("Aucune voix disponible : les réponses seront affichées.")
+        _annoncer_demarrage(assistant)
+
+        print("\nChargement des modèles…")
+        await pipeline.warmup()
+
+        if once:
+            # Rejeu d'un fichier : un tour, puis on sort. C'est le mode
+            # d'intégration continue et de démonstration sans micro.
+            resultat = await pipeline.voice_turn()
+            return 0 if resultat.utterance else 1
+
+        clavier = _LecteurClavier(asyncio.get_running_loop())
+        clavier.start()
+        print("[Entrée] pour parler, [Entrée] à nouveau pour terminer. /aide, /quitter.")
+
+        while True:
+            print("\n[Entrée] pour parler › ", end="", flush=True)
+            ligne = await clavier.prochaine()
+            if ligne is None:
+                print()
+                return 0
+            ligne = ligne.strip()
+            if ligne.startswith("/"):
+                if _handle_command(assistant, ligne):
+                    return 0
+                continue
+            if ligne:
+                # Une phrase tapée est traitée comme si elle avait été dite :
+                # pratique pour éprouver la synthèse sans parler à sa machine.
+                await pipeline.handle_and_speak(ligne)
+                continue
+
+            print("… j'écoute, [Entrée] pour terminer.")
+            stop = threading.Event()
+            tour = asyncio.ensure_future(pipeline.voice_turn(stop))
+            fin = asyncio.ensure_future(clavier.prochaine())
+            termine, _ = await asyncio.wait({tour, fin}, return_when=asyncio.FIRST_COMPLETED)
+            if fin in termine:
+                stop.set()
+                await tour
+            else:
+                # La durée maximale a été atteinte : on rend la frappe suivante
+                # au tour d'après plutôt que de la perdre.
+                fin.cancel()
+    finally:
+        pipeline.detach()
+
+
 def describe_startup(assistant: Assistant) -> dict[str, Any]:
     return {
         "profil": assistant.config.get("profile"),
         "llm": assistant.llm.describe(),
+        "stt": assistant.stt.describe() if assistant.stt else "-",
+        "tts": assistant.tts.describe() if assistant.tts else "-",
         "plugins": len([r for r in assistant.registry.plugins.values() if r.ok]),
         "competences": len(assistant.registry.skills),
         "echecs": len(assistant.registry.failures()),
