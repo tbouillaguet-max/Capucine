@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capucine"
+version = "0.1.0"
+description = "Assistante vocale francophone, 100 % locale, extensible par simple dépôt de fichier"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Le cœur ne dépend que de la bibliothèque standard : `tomllib` pour la
+# configuration, `asyncio` pour le pipeline, `importlib` pour les plugins.
+# Tout le reste est optionnel et importé paresseusement.
+dependencies = []
+
+[project.optional-dependencies]
+# Étape 1 — au moins un moteur de langage local.
+llm-ollama = ["ollama>=0.6,<1"]
+llm-llamacpp = ["llama-cpp-python>=0.3.30,<0.4"]
+
+# Étapes 2 et 3 — la chaîne audio.
+audio = [
+  "sounddevice>=0.5,<0.6",
+  "numpy>=1.26",
+  "faster-whisper>=1.2,<2",
+  "piper-tts>=1.7,<2",
+  "silero-vad>=6,<7",
+  "openwakeword>=0.6,<1",
+  "onnxruntime>=1.17",
+]
+# Repli de reconnaissance et de mot d'éveil, utile sur Raspberry Pi.
+vosk = ["vosk>=0.3.45,<0.4"]
+
+# Étape 4 — rechargement à chaud.
+reload = ["watchdog>=6,<7"]
+
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+capucine = "main:main"
+
+[tool.setuptools.packages.find]
+include = ["capucine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# B027 : les hooks vides des interfaces (warmup, close, reset) sont
+# volontairement facultatifs — les rendre abstraits obligerait chaque moteur
+# à écrire des méthodes vides.
+ignore = ["E501", "B027"]

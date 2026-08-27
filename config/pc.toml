@@ -1,0 +1,13 @@
+# Profil PC : machine principale, GPU possible.
+
+[llm]
+engine = "ollama"
+model = "qwen2.5:7b-instruct-q4_K_M"
+num_ctx = 8192
+
+[stt]
+model = "small"
+device = "auto"
+
+[plugins]
+timeout = 10.0

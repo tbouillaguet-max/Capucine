@@ -1,0 +1,25 @@
+# Profil Raspberry Pi / mini-PC Linux : le même code, une autre configuration.
+
+[llm]
+engine = "ollama"
+model = "qwen2.5:3b-instruct-q4_K_M"
+num_ctx = 2048
+
+[llm.router]
+# Sur Pi, chaque appel au modèle coûte cher : on fait davantage confiance à
+# l'étage déterministe, quitte à être un peu plus permissif.
+direct_threshold = 0.65
+
+[stt]
+model = "tiny"
+device = "cpu"
+compute_type = "int8"
+
+[tts]
+voice = "fr_FR-siwis-medium"
+
+[plugins]
+timeout = 15.0
+
+[audio]
+frame_ms = 30

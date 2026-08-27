@@ -1,0 +1,75 @@
+# Configuration de référence de Capucine.
+# Elle est chargée en premier, puis surchargée par le profil (pc.toml ou
+# pi.toml), puis par les variables d'environnement CAPUCINE_SECTION__CLE,
+# puis par les options de ligne de commande.
+
+language = "fr"
+
+[assistant]
+name = "Capucine"
+persona_file = "config/persona.txt"
+memory_turns = 6            # nombre de tours conservés en mémoire courte
+follow_up_seconds = 8.0     # fenêtre du mode suivi, sans redire « Capucine » (étape 3)
+announce_new_skills = true  # annonce vocale des compétences nouvellement chargées
+
+[plugins]
+# Les plugins vivent à la racine du dépôt, pas dans le paquet installé.
+# Ajoutez vos propres dossiers ici : ils sont fouillés dans l'ordre, un dossier
+# ultérieur masquant un même nom de fichier.
+paths = ["./plugins", "~/.capucine/plugins"]
+timeout = 10.0              # délai par défaut d'un skill, en secondes
+quarantine_after = 3        # échecs consécutifs avant désactivation d'un skill
+data_dir = "~/.capucine/data"
+hot_reload = true           # surveillance du dossier (étape 4)
+debounce_ms = 500
+
+[llm]
+engine = "ollama"           # ollama | llamacpp | mock
+model = "qwen2.5:7b-instruct-q4_K_M"
+host = "http://127.0.0.1:11434"
+temperature = 0.3
+num_ctx = 4096
+keep_alive = "10m"
+timeout = 60.0
+# Pour engine = "llamacpp" :
+# model_path = "models/qwen2.5-7b-instruct-q4_k_m.gguf"
+# n_gpu_layers = 35
+
+[llm.router]
+direct_threshold = 0.72     # au-dessus, l'étage déterministe décide seul
+shortlist_threshold = 0.35  # en-dessous, l'outil n'est même pas proposé au modèle
+shortlist_size = 5
+number_extraction = true    # « à vingt faces » -> faces=20, sans solliciter le modèle
+
+[stt]
+engine = "faster-whisper"   # étape 2
+model = "small"
+device = "auto"
+compute_type = "auto"
+language = "fr"
+
+[tts]
+engine = "piper"            # étape 2
+voice = "fr_FR-siwis-medium"
+speed = 1.0
+
+[wake]
+engine = "openwakeword"     # étape 3, repli « vosk » si le modèle n'est pas entraîné
+word = "capucine"
+threshold = 0.5
+
+[vad]
+engine = "silero"           # étape 3
+threshold = 0.5
+silence_ms = 700
+max_utterance_s = 20.0
+
+[audio]
+sample_rate = 16000
+frame_ms = 30
+input_device = ""           # vide = périphérique par défaut
+output_device = ""
+
+[logging]
+level = "INFO"
+json = false
