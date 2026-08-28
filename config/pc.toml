@@ -12,3 +12,28 @@ compute_type = "auto"
 
 [plugins]
 timeout = 10.0
+
+# --- Exemples de configuration des nouvelles compétences ------------------
+# Décommentez et adaptez. Tant que atelier.racines est vide (voir
+# default.toml), les compétences fichiers/python/projet restent inertes.
+
+# [plugins.recherche]
+# moteur = "searxng"                    # searxng | google | duckduckgo
+# searxng_url = "http://127.0.0.1:8888" # une instance que vous hébergez
+# # moteur = "google"
+# # google_cle_api = "..."              # console.cloud.google.com, API Custom Search
+# # google_cx = "..."                   # programmablesearchengine.google.com
+
+# [plugins.projet.projets.calculrisque]
+# chemin = "~/projets/CalculRisque_Mark5"
+# description = "valorisation et backtest options"
+# commande = "run_pipeline_quarterly.py"
+# options_par_defaut = "--resume"       # reprend les étapes déjà réussies
+# rapport = "data/pipeline_runs/*/report.json"
+# commande_test = "-m pytest -q"
+# delai_s = 5400                        # le pipeline complet dure longtemps
+# variables = { SEC_CONTACT_EMAIL = "vous@exemple.fr" }
+#
+# Le mode replay, sans le moindre appel réseau, se lance en disant
+# « lance calculrisque avec l'option as of date deux mille vingt-cinq… » ou,
+# plus simplement, en réglant options_par_defaut = "--as-of-date 2025-06-30".

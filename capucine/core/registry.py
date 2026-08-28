@@ -38,7 +38,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .errors import ArgumentError, PluginImportError, SkillCrashed, SkillTimeout
+from .errors import (
+    ArgumentError,
+    PluginImportError,
+    SkillCrashed,
+    SkillRefused,
+    SkillTimeout,
+)
 from .logging import get_logger, log_with
 from .plugin import (
     SKILL_ATTRIBUTE,
@@ -202,6 +208,9 @@ def run_with_timeout(
     if succeeded:
         return payload
     if isinstance(payload, KeyboardInterrupt):
+        raise payload
+    if isinstance(payload, SkillRefused):
+        # Un refus n'est pas un plantage : il traverse intact.
         raise payload
     raise SkillCrashed(str(payload) or type(payload).__name__) from payload
 
@@ -549,6 +558,12 @@ class PluginRegistry:
         started = time.perf_counter()
         try:
             value = self._invoquer(spec, cleaned)
+        except SkillRefused as exc:
+            elapsed = (time.perf_counter() - started) * 1000.0
+            # Ni quarantaine ni trace : le plugin a fait son travail, il a dit
+            # non pour une raison précise.
+            logger.info("Compétence « %s » a refusé : %s", name, exc)
+            return SkillResult.failure(name, str(exc), round(elapsed, 1))
         except SkillTimeout as exc:
             elapsed = (time.perf_counter() - started) * 1000.0
             self._record_failure(spec)

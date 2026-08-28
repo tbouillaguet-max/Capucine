@@ -24,13 +24,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .errors import SchemaError
+from .errors import SchemaError, SkillRefused
 from .logging import get_logger
 from .schema import build_parameters_schema, build_tool_schema
 from .text import ascii_identifier
 
 __all__ = [
     "skill",
+    "SkillRefused",
     "SkillDeclaration",
     "SkillSpec",
     "PluginContext",
@@ -39,6 +40,14 @@ __all__ = [
     "data_dir",
     "announce",
     "set_announcer",
+    "demander_au_modele",
+    "set_model_access",
+    "atelier",
+    "set_atelier",
+    "memoire",
+    "set_memoire",
+    "conversation",
+    "set_conversation",
     "register_context",
     "clear_context",
     "contexte_de",
@@ -303,6 +312,105 @@ def announce(message: str) -> None:
         except Exception:  # pragma: no cover - une annonce ne casse jamais rien
             _logger.exception("Échec de l'annonce, repli sur le journal.")
     _logger.info("[annonce] %s", message)
+
+
+# --- accès au modèle, à l'atelier et à la mémoire --------------------------
+# Trois ressources que le cœur détient et qu'un plugin peut demander. Elles
+# passent par des points d'injection, comme `announce` : un plugin ne connaît
+# jamais le pipeline, et reste testable en le remplaçant.
+
+_MODELE: Callable[..., str] | None = None
+_ATELIER: Any = None
+_MEMOIRE: Any = None
+_CONVERSATION: Any = None
+
+
+def set_model_access(fonction: Callable[..., str] | None) -> None:
+    """Branche l'accès au modèle de langage utilisé par ``demander_au_modele``."""
+    global _MODELE
+    _MODELE = fonction
+
+
+def demander_au_modele(
+    prompt: str,
+    *,
+    system: str = "",
+    max_tokens: int = 512,
+    temperature: float = 0.2,
+    json_schema: dict[str, Any] | None = None,
+) -> str:
+    """Pose une question au modèle de langage local, et rend sa réponse brute.
+
+    C'est ce qui permet à un plugin d'**écrire du code** ou de résumer un
+    texte. Volontairement limité à une complétion simple : pas de routage,
+    pas d'outils, donc pas de récursion possible — un plugin ne peut pas
+    déclencher un autre plugin par ce biais.
+
+    Lève ``RuntimeError`` si aucun modèle n'est joignable ; le plugin doit le
+    dire à l'utilisateur plutôt que d'inventer une réponse.
+    """
+    if _MODELE is None:
+        raise SkillRefused(
+            "Aucun modèle de langage n'est disponible. Vérifiez llm.engine dans "
+            "la configuration, et qu'Ollama répond."
+        )
+    return _MODELE(
+        prompt, system=system, max_tokens=max_tokens,
+        temperature=temperature, json_schema=json_schema,
+    )
+
+
+def set_atelier(instance: Any) -> None:
+    """Branche l'atelier — les dossiers que Capucine a le droit de toucher."""
+    global _ATELIER
+    _ATELIER = instance
+
+
+def atelier() -> Any:
+    """L'atelier courant. Lève si aucun dossier n'a été ouvert.
+
+    Tous les accès disque d'un plugin devraient passer par là : c'est le seul
+    endroit qui vérifie qu'un chemin reste dans les dossiers autorisés.
+    """
+    if _ATELIER is None or not getattr(_ATELIER, "ouvert", False):
+        raise SkillRefused(
+            "Aucun dossier de travail n'est ouvert. Renseignez atelier.racines "
+            "dans la configuration — par sécurité, la liste est vide au départ."
+        )
+    return _ATELIER
+
+
+def set_memoire(instance: Any) -> None:
+    """Branche la mémoire persistante."""
+    global _MEMOIRE
+    _MEMOIRE = instance
+
+
+def set_conversation(instance: Any) -> None:
+    """Branche le fil de conversation courant."""
+    global _CONVERSATION
+    _CONVERSATION = instance
+
+
+def conversation() -> Any:
+    """Le fil courant. Permet à un plugin de reprendre une session passée.
+
+    C'est la seule ressource qui donne prise sur l'état du dialogue : elle
+    reste volontairement étroite, un plugin ne peut que relire ou remplacer
+    le fil, jamais s'insérer dans le routage.
+    """
+    if _CONVERSATION is None:
+        raise RuntimeError("Aucune conversation en cours.")
+    return _CONVERSATION
+
+
+def memoire() -> Any:
+    """La mémoire persistante. Lève si elle est désactivée."""
+    if _MEMOIRE is None:
+        raise SkillRefused(
+            "La mémoire persistante est désactivée (memoire.active = false)."
+        )
+    return _MEMOIRE
 
 
 def config_defaults(module: Any) -> Mapping[str, Any]:

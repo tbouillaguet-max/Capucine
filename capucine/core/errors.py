@@ -32,6 +32,16 @@ class PluginImportError(PluginError):
         self.missing_package = missing_package
 
 
+class SkillRefused(PluginError):
+    """Le plugin refuse d'agir, pour une raison que l'utilisateur doit entendre.
+
+    À distinguer d'un plantage : « ce fichier est hors de l'atelier » ou « il
+    faut une clé d'API » ne sont pas des bogues, ce sont des réponses. Le
+    registre les transmet telles quelles au lieu de les traduire en « je n'ai
+    pas pu exécuter cette commande », qui n'apprend rien à personne.
+    """
+
+
 class SkillTimeout(PluginError):
     """Le skill a dépassé son délai d'exécution."""
 

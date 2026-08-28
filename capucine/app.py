@@ -12,6 +12,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from .core.atelier import Atelier
+from .core.atelier import depuis_config as atelier_depuis_config
 from .core.audio import AudioInput, AudioOutput
 from .core.config import Config
 from .core.conversation import Conversation, load_persona
@@ -25,7 +27,7 @@ from .core.engines.factory import (
     build_vad,
     build_wake,
 )
-from .core.interfaces.llm import LLMEngine
+from .core.interfaces.llm import LLMEngine, Message
 from .core.interfaces.stt import STTEngine
 from .core.interfaces.tts import TTSEngine
 from .core.interfaces.vad import VADEngine
@@ -33,7 +35,10 @@ from .core.interfaces.wake import WakeWordEngine
 from .core.listener import BargeInMode, ListenMode, VoiceListener
 from .core.logging import get_latency_book, get_logger
 from .core.machine import conseils, decrire
+from .core.memoire import Memoire
+from .core.memoire import depuis_config as memoire_depuis_config
 from .core.pipeline import Pipeline
+from .core.plugin import set_atelier, set_conversation, set_memoire, set_model_access
 from .core.registry import PluginRegistry
 from .core.router import Router
 from .core.watcher import PluginWatcher
@@ -57,8 +62,20 @@ class Assistant:
     wake: WakeWordEngine | None = None
     listener: VoiceListener | None = None
     watcher: PluginWatcher | None = None
+    memoire: Memoire | None = None
+    atelier: Atelier | None = None
 
     async def aclose(self) -> None:
+        if self.memoire is not None:
+            if self.conversation.session_id is not None:
+                self.memoire.fermer_session(self.conversation.session_id)
+            self.memoire.fermer()
+        # On débranche les ressources prêtées aux plugins : un test qui monte
+        # deux assistants ne doit pas hériter de l'atelier du précédent.
+        set_model_access(None)
+        set_atelier(None)
+        set_memoire(None)
+        set_conversation(None)
         if self.watcher is not None:
             self.watcher.stop()
         if self.listener is not None:
@@ -75,6 +92,7 @@ def build_assistant(
     llm: LLMEngine | None = None,
     *,
     voice: bool = False,
+    reprendre: str | None = None,
     stt: STTEngine | None = None,
     tts: TTSEngine | None = None,
     audio_in: AudioInput | None = None,
@@ -99,10 +117,28 @@ def build_assistant(
         allow_number_extraction=bool(router_options.get("number_extraction", True)),
     )
 
+    memoire = memoire_depuis_config(config)
     conversation = Conversation(
         persona=load_persona(config.resolve_path("assistant.persona_file")),
         max_turns=int(config.get("assistant.memory_turns", 6)),
+        memoire=memoire,
     )
+    if memoire is not None:
+        demande = reprendre
+        if demande is None and bool(config.get("memoire.reprendre_au_demarrage", False)):
+            demande = "derniere"
+        if demande is not None:
+            _reprendre_conversation(conversation, memoire, demande)
+        else:
+            conversation.session_id = memoire.ouvrir_session().id
+
+    # Les trois ressources que le cœur prête aux plugins. `demander_au_modele`
+    # est une complétion simple : jamais de routage, donc pas de récursion.
+    atelier = atelier_depuis_config(config)
+    set_atelier(atelier)
+    set_memoire(memoire)
+    set_conversation(conversation)
+    set_model_access(_acces_modele(engine))
 
     registry = PluginRegistry(
         config.plugin_paths(),
@@ -145,7 +181,38 @@ def build_assistant(
         config=config, llm=engine, registry=registry, router=router,
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
+        memoire=memoire, atelier=atelier,
     )
+
+
+def _acces_modele(engine: LLMEngine):
+    """Adapte le moteur LLM à la signature simple offerte aux plugins."""
+
+    def demander(prompt, *, system="", max_tokens=512, temperature=0.2, json_schema=None):
+        messages = []
+        if system:
+            messages.append(Message(role="system", content=system))
+        messages.append(Message(role="user", content=prompt))
+        return engine.chat(
+            messages, json_schema=json_schema,
+            temperature=temperature, max_tokens=max_tokens,
+        )
+
+    return demander
+
+
+def _reprendre_conversation(conversation: Conversation, memoire: Memoire, quoi: str) -> None:
+    """``--reprendre derniere`` ou ``--reprendre 12``."""
+    cible = None
+    if quoi in ("derniere", "dernière", "last"):
+        cible = memoire.derniere_session()
+    elif quoi.isdigit():
+        cible = memoire.session(int(quoi))
+    if cible is None:
+        logger.warning("Aucune conversation à reprendre pour « %s ».", quoi)
+        conversation.session_id = memoire.ouvrir_session().id
+        return
+    conversation.reprendre(cible.id)
 
 
 def start_hot_reload(assistant: Assistant) -> bool:
@@ -217,7 +284,7 @@ def build_listener(
 # --- commandes communes aux deux modes -------------------------------------
 
 AIDE = """Commandes : /aide  /competences  /plugins  /recharge  /latences  /machine
-            /oublie  /quitter
+            /conversations  /reprendre [n]  /memoire  /atelier  /oublie  /quitter
 En mode vocal, une ligne vide déclenche l'écoute ; tout autre texte est traité
 comme si vous l'aviez dit."""
 
@@ -272,6 +339,33 @@ def _handle_command(assistant: Assistant, line: str) -> bool:
         remarques = conseils(assistant.config, machine)
         print("\n".join(f"  • {remarque}" for remarque in remarques)
               or "  Rien à signaler.")
+    elif command in ("/conversations", "/sessions"):
+        if assistant.memoire is None:
+            print("Mémoire persistante désactivée.")
+        else:
+            sessions = assistant.memoire.sessions(limite=10)
+            print("\n".join(s.decrire() for s in sessions) or "Aucune conversation.")
+    elif command in ("/reprendre", "/reprend"):
+        if assistant.memoire is None:
+            print("Mémoire persistante désactivée.")
+        else:
+            morceaux = line.split()
+            _reprendre_conversation(
+                assistant.conversation, assistant.memoire,
+                morceaux[1] if len(morceaux) > 1 else "derniere",
+            )
+            print(f"Fil courant : {len(assistant.conversation)} message(s).")
+    elif command in ("/memoire", "/faits"):
+        if assistant.memoire is None:
+            print("Mémoire persistante désactivée.")
+        else:
+            print(assistant.memoire.bloc_de_faits() or "Aucun fait retenu.")
+    elif command == "/atelier":
+        if assistant.atelier is None or not assistant.atelier.ouvert:
+            print("Aucun dossier ouvert. Renseignez atelier.racines, "
+                  "ou lancez avec --atelier CHEMIN.")
+        else:
+            print(f"Atelier : {assistant.atelier.decrire()}")
     elif command in ("/oublie", "/clear"):
         assistant.conversation.clear()
         print("Mémoire de conversation vidée.")
@@ -519,6 +613,8 @@ def describe_startup(assistant: Assistant) -> dict[str, Any]:
         "stt": assistant.stt.describe() if assistant.stt else "-",
         "tts": assistant.tts.describe() if assistant.tts else "-",
         "vad": assistant.vad.describe() if assistant.vad else "-",
+        "memoire": "active" if assistant.memoire else "-",
+        "atelier": assistant.atelier.decrire() if assistant.atelier else "-",
         "eveil": assistant.wake.describe() if assistant.wake else "-",
         "plugins": len([r for r in assistant.registry.plugins.values() if r.ok]),
         "competences": len(assistant.registry.skills),

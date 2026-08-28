@@ -50,6 +50,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="remplace vad.engine : silero ou energie")
     parser.add_argument("--plugins", metavar="DOSSIER", action="append",
                         help="dossier de plugins supplémentaire (répétable)")
+    parser.add_argument("--reprendre", metavar="QUOI",
+                        help="reprend une conversation : « derniere » ou son numéro")
+    parser.add_argument("--atelier", metavar="DOSSIER", action="append",
+                        help="ouvre un dossier de travail pour cette session (répétable)")
     parser.add_argument("--no-hot-reload", action="store_true",
                         help="ne surveille pas plugins/ (la commande /recharge reste)")
 
@@ -96,6 +100,8 @@ def build_overrides(args: argparse.Namespace) -> dict:
         overrides.setdefault("plugins", {})["paths"] = list(args.plugins)
     if args.no_hot_reload:
         overrides.setdefault("plugins", {})["hot_reload"] = False
+    if args.atelier:
+        overrides.setdefault("atelier", {})["racines"] = list(args.atelier)
     if args.log_level:
         overrides.setdefault("logging", {})["level"] = args.log_level
     if args.json_logs:
@@ -119,6 +125,7 @@ async def _run(args: argparse.Namespace) -> int:
         wav_in=args.wav_in,
         wav_out=args.wav_out,
         silent_output=args.muet,
+        reprendre=args.reprendre,
     )
     try:
         if mode_texte:

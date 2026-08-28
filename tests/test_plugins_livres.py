@@ -33,9 +33,13 @@ def registre_livre(tmp_path: Path):
     contrat.set_announcer(None)
 
 
-def test_les_quatre_plugins_se_chargent(registre_livre) -> None:
+ENSEIGNANTS = {"heure", "minuteur", "notes", "systeme"}
+ASSISTANCE = {"memoire", "recherche", "fichiers", "python", "projet"}
+
+
+def test_tous_les_plugins_livres_se_chargent(registre_livre) -> None:
     registry, _ = registre_livre
-    assert set(registry.plugins) == {"heure", "minuteur", "notes", "systeme"}
+    assert set(registry.plugins) == ENSEIGNANTS | ASSISTANCE
     assert registry.failures() == []
     # Chacun expose au moins une compétence, et toutes ont un schéma d'outil.
     assert all(record.skills for record in registry.plugins.values())

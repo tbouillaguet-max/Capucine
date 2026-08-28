@@ -27,6 +27,28 @@ data_dir = "~/.capucine/data"
 hot_reload = true           # surveillance du dossier (étape 4)
 debounce_ms = 500
 
+[memoire]
+# Ce que Capucine garde entre deux démarrages : l'historique des conversations
+# (reprenables) et les faits durables qu'elle sait de vous. Un fichier SQLite,
+# sur votre machine, qui n'en sort jamais.
+active = true
+fichier = "~/.capucine/memoire.sqlite"
+messages_repris = 12        # tours rechargés quand on reprend une conversation
+reprendre_au_demarrage = false   # true = enchaîner sur la dernière conversation
+
+[atelier]
+# Les dossiers que Capucine a le droit de lire et d'écrire.
+#
+# VIDE PAR DÉFAUT, et ce n'est pas un oubli : la commande arrive par la voix,
+# une transcription est imparfaite, et un modèle choisit parfois mal ses
+# arguments. Les compétences « fichiers », « python » et « projet » restent
+# donc inertes tant que vous n'ouvrez pas explicitement un dossier.
+racines = []
+# racines = ["~/projets", "~/Documents/notes"]
+lecture_seule = false       # true = elle lit et n'écrit jamais
+taille_max_ko = 512         # au-delà, elle refuse de lire un fichier d'un bloc
+corbeille = "~/.capucine/corbeille"   # rien n'est supprimé, tout y est déplacé
+
 [llm]
 engine = "ollama"           # ollama | llamacpp | mock
 model = "qwen2.5:7b-instruct-q4_K_M"

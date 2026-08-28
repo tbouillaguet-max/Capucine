@@ -7,10 +7,11 @@ La contrainte qui prime sur toutes les autres décisions d'architecture :
 **ajouter une capacité, c'est déposer un fichier Python dans `plugins/`.** Sans
 redémarrer l'assistante, et sans jamais toucher au cœur.
 
-> **État : les cinq étapes sont terminées.** Le critère d'acceptation du projet
-> passe : déposez un fichier dans `plugins/` pendant que Capucine tourne, elle
-> annonce la nouvelle compétence et l'exécute — sans redémarrage et sans
-> toucher au cœur.
+> **État : les cinq étapes sont terminées**, plus une extension d'assistance
+> (mémoire persistante, recherche web, fichiers, Python, projets). Le critère
+> d'acceptation du projet passe : déposez un fichier dans `plugins/` pendant
+> que Capucine tourne, elle annonce la nouvelle compétence et l'exécute — sans
+> redémarrage et sans toucher au cœur.
 
 ---
 
@@ -244,6 +245,11 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 | `@skill(timeout=…)` | Délai maximum. Au-delà, Capucine répond qu'elle n'a pas pu exécuter la commande. |
 | `@skill(confirm="…")` | Action irréversible : Capucine pose la question et attend un oui avant d'exécuter. |
 | `@skill(isolate=True)` | Exécute dans un sous-processus, réellement tuable. Voir la limite assumée plus bas. |
+| `raise SkillRefused("…")` | Refuser **en le disant**. Le message est prononcé mot pour mot, ce n'est pas compté comme une panne. |
+| `demander_au_modele(prompt)` | Une complétion du modèle local. Pas de routage, donc pas de récursion : un plugin ne peut pas en déclencher un autre par ce biais. |
+| `atelier()` | Les dossiers que vous avez ouverts. Tout accès disque devrait passer par là. |
+| `memoire()` | L'historique et les faits durables. |
+| `conversation()` | Le fil courant, pour reprendre une session passée. |
 | Docstring | Contexte pour le modèle. Les sections `Args:` ou `:param x:` documentent chaque argument. |
 | `CONFIG_DEFAULTS = {…}` | Réglages du plugin, surchargés par `[plugins.<nom>]` du fichier de configuration. |
 | `get_config("cle")` | Lit ces réglages. Utilisable dès le corps du module. |
@@ -268,9 +274,9 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 * Un plugin en échec répété est mis en quarantaine et retiré du catalogue
   proposé au modèle.
 
-### Les quatre plugins livrés
+### Les plugins livrés
 
-Ce sont de la documentation vivante, chacun couvrant un cas différent :
+Quatre plugins **pédagogiques**, documentation vivante du contrat :
 
 | Fichier | Ce qu'il montre |
 |---|---|
@@ -279,7 +285,135 @@ Ce sont de la documentation vivante, chacun couvrant un cas différent :
 | `notes.py` | `data_dir()`, `CONFIG_DEFAULTS`, et `confirm=` sur l'effacement. |
 | `systeme.py` | Une dépendance optionnelle (`psutil`) traitée par dégradation plutôt que par échec, et du code qui diffère selon la plateforme sans que le cœur en sache rien. |
 
+Cinq plugins d'**assistance**, qui font vraiment travailler Capucine :
+
+| Fichier | Ce qu'elle sait faire |
+|---|---|
+| `memoire.py` | Retenir un fait durablement, retrouver un passage d'une conversation passée, en reprendre une. |
+| `recherche.py` | Chercher sur le web et lire une page. **Le seul plugin qui sort de la machine.** |
+| `fichiers.py` | Lister, lire, chercher, compléter, écrire, déplacer, jeter — dans un périmètre que vous ouvrez. |
+| `python.py` | Exécuter du Python, lancer un script, écrire du code avec le modèle local, l'expliquer. |
+| `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
+
 ---
+
+## Ce qu'elle sait faire pour vous
+
+Ces cinq compétences dépassent le cadre d'un assistant vocal ordinaire. Elles
+sont donc encadrées, et il faut lire cette section avant de les ouvrir.
+
+### La mémoire
+
+```
+Vous  › retiens que je travaille sur CalculRisque
+Capucine › C'est retenu.
+                       ⟶ redémarrage ⟵
+Vous  › que sais-tu de moi
+Capucine › Tu travailles sur CalculRisque.
+Vous  › reprends notre conversation d'hier
+Capucine › Nous reprenons la conversation d'hier à 18 h 40 : le backtest options.
+```
+
+Trois horizons distincts, souvent confondus : le **fil courant** (borné, il
+tient dans le contexte du modèle), l'**historique** (toutes les conversations,
+cherchables et reprenables) et les **faits durables** (réinjectés dans le
+persona à chaque tour). Le tout dans un fichier SQLite — bibliothèque
+standard, aucune dépendance ajoutée — sur votre machine, qui n'en sort jamais.
+
+En session : `/conversations`, `/reprendre [n]`, `/memoire`. Au lancement :
+`python main.py --reprendre derniere`.
+
+### L'atelier — le périmètre sur vos fichiers
+
+**Il est vide par défaut, et ce n'est pas un oubli.** La commande arrive par la
+voix, une transcription est imparfaite, et un modèle 7B choisit parfois mal ses
+arguments. Les compétences fichiers, Python et projet restent inertes tant que
+vous n'avez pas ouvert un dossier :
+
+```toml
+[atelier]
+racines = ["~/projets/CalculRisque_Mark5"]
+```
+
+ou, le temps d'une session : `python main.py --atelier ~/projets/CalculRisque_Mark5`.
+
+Ce que la frontière garantit, et qui est éprouvé par `tests/test_atelier.py` :
+
+* tout chemin est résolu — **liens symboliques compris** — puis vérifié comme
+  appartenant à une racine autorisée ; un lien posé dans l'atelier ne donne pas
+  accès à sa cible ;
+* les identifiants et les clés (`.env`, `*.pem`, `id_rsa`, `.ssh/`) restent
+  hors de portée **même à l'intérieur** d'une racine ouverte ;
+* toute réécriture laisse une sauvegarde horodatée à côté du fichier ;
+* **rien n'est supprimé** — les fichiers partent à la corbeille ;
+* écrire, déplacer, jeter, exécuter du code et lancer un projet demandent
+  confirmation à voix haute ;
+* `atelier.lecture_seule = true` si vous voulez qu'elle regarde sans toucher.
+
+Un refus est **prononcé**, pas avalé : « ce fichier est hors de l'atelier »
+plutôt que « je n'ai pas pu exécuter cette commande ».
+
+### Coder et exécuter
+
+```
+Vous  › écris-moi un script qui trie un csv par date
+Capucine › J'ai écrit 18 lignes. Relisez-les, puis dites-moi où les enregistrer.
+          [le code s'affiche]
+Vous  › enregistre-le dans outils/tri.py
+Capucine › Voulez-vous vraiment enregistrer ce code ?
+```
+
+Le cycle est **proposer puis enregistrer**, en deux compétences : un modèle 7B
+écrit du Python approximatif, on ne l'écrit jamais à l'aveugle. L'exécution se
+fait en sous-processus, avec délai, dans l'atelier, sans jamais passer par un
+shell.
+
+### Lancer un projet entier
+
+Un pipeline de données tourne quarante minutes : hors de question de bloquer un
+tour de parole. Capucine lance, rend la main tout de suite, et vous interrompt
+à la fin.
+
+```toml
+[plugins.projet.projets.calculrisque]
+chemin = "~/projets/CalculRisque_Mark5"
+description = "valorisation et backtest options"
+commande = "run_pipeline_quarterly.py"
+options_par_defaut = "--resume"
+rapport = "data/pipeline_runs/*/report.json"
+commande_test = "-m pytest -q"
+delai_s = 5400
+variables = { SEC_CONTACT_EMAIL = "vous@exemple.fr" }
+```
+
+```
+Vous  › lance le pipeline calculrisque
+Capucine › C'est parti pour calculrisque. Je vous préviens à la fin.
+Vous  › où en est le pipeline
+Capucine › calculrisque tourne depuis 12 minutes. 06b_calcul_valorisation_combinee.py
+                       ⟶ trente minutes plus tard ⟵
+Capucine › calculrisque est terminé, en 41 minutes.
+```
+
+`rapport` pointe vers le JSON de run : Capucine sait alors dire « le dernier run
+s'est terminé en partial, étapes en échec : 08_recuperation_options.py ».
+Ajouter un projet ne demande pas de toucher au code.
+
+### La recherche web — la seule entorse
+
+**Ce plugin sort de la machine.** C'est la seule dérogation à la règle numéro
+un du projet, et elle est délibérée : elle vit dans un plugin, pas dans le
+cœur. Retirez `plugins/recherche.py` et Capucine redevient intégralement
+hors-ligne. Trois moteurs :
+
+| Moteur | Ce qu'il demande | Remarque |
+|---|---|---|
+| `searxng` | une instance que vous hébergez | Le choix cohérent : il interroge Google et les autres, mais depuis chez vous, sans compte ni profilage. |
+| `google` | une clé d'API et un identifiant de moteur | L'API officielle *Custom Search*, 100 requêtes par jour gratuites. |
+| `duckduckgo` | rien | Sans garantie : c'est du décorticage de page HTML, ça casse le jour où la mise en page change. |
+
+Elle annonce qu'elle va sur le réseau plutôt que de le faire en silence, et
+hors-ligne elle le dit au lieu de planter.
 
 ## Architecture
 
@@ -301,6 +435,8 @@ capucine/
 ├── app.py                  assemblage config → registre → routeur → pipeline
 └── core/
     ├── pipeline.py         machine à états (asyncio)
+    ├── memoire.py          historique et faits durables (SQLite)
+    ├── atelier.py          la frontière entre Capucine et vos fichiers
     ├── listener.py         le fil qui tient le micro, du début à la fin
     ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
     ├── audio.py            un seul point d'entrée/sortie, sans dépendance
@@ -467,7 +603,7 @@ du matériel détecté.
 python -m pytest
 ```
 
-278 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
+348 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
 d'acceptation est joué en entier — vrai observateur `watchdog`, vrai fichier
 déposé pendant l'exécution. La boucle vocale — éveil, énoncé, réponse, suivi,
 barge-in — est éprouvée avec un micro en mémoire, un mot d'éveil scripté et un
