@@ -15,6 +15,7 @@ import unicodedata
 from collections.abc import Iterable, Iterator
 
 __all__ = [
+    "accord_ou_refus",
     "split_sentences",
     "stream_sentences",
     "strip_accents",
@@ -305,3 +306,46 @@ def stream_sentences(morceaux: Iterable[str], min_chars: int = 1) -> Iterator[st
     reste = f"{attente} {tampon}".strip() if attente else tampon.strip()
     if reste:
         yield reste
+
+
+# --- oui, non, ou ni l'un ni l'autre ---------------------------------------
+
+_ACCORDS = {
+    "oui", "ouais", "ouaip", "si", "d accord", "daccord", "vas y", "allez y",
+    "confirme", "je confirme", "fais le", "faites le", "bien sur", "exact",
+    "c est ca", "affirmatif", "ok", "okay", "parfait", "valide",
+}
+_REFUS = {
+    "non", "nan", "surtout pas", "annule", "annuler", "laisse tomber",
+    "laissez tomber", "arrete", "arretez", "negatif", "pas du tout",
+    "non merci", "oublie", "oubliez",
+}
+_MOTS_ACCORD = {mot for accord in _ACCORDS for mot in accord.split()}
+_MOTS_REFUS = {mot for refus in _REFUS for mot in refus.split()}
+
+
+def accord_ou_refus(phrase: str) -> bool | None:
+    """``True`` pour un oui, ``False`` pour un non, ``None`` si ça ne tranche pas.
+
+    Volontairement strict : on juge la phrase entière, pas un mot au milieu.
+    « Non, plutôt trois minutes » ne doit pas être lu comme un refus sec — c'est
+    une nouvelle demande — et « oui mais avant, quelle heure est-il ? » non plus
+    comme un accord. Dans le doute, on rend ``None`` et l'appelant repart en
+    routage normal plutôt que de piéger l'utilisateur dans sa question.
+    """
+    normalisee = normalize(phrase)
+    if not normalisee:
+        return None
+    if normalisee in _ACCORDS:
+        return True
+    if normalisee in _REFUS:
+        return False
+    # « oui vas-y », « non annule » : plusieurs marqueurs, tous du même bord.
+    mots = set(normalisee.split())
+    if not mots:
+        return None
+    if mots <= _MOTS_ACCORD:
+        return True
+    if mots <= _MOTS_REFUS:
+        return False
+    return None

@@ -69,6 +69,8 @@ class SkillResult:
     display: str = ""
     error: str | None = None
     duration_ms: float = 0.0
+    needs_confirmation: bool = False
+    arguments: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def failure(cls, skill: str, message: str, duration_ms: float = 0.0) -> SkillResult:
@@ -231,6 +233,7 @@ class PluginRegistry:
         config: Any = None,
         *,
         default_timeout: float = DEFAULT_TIMEOUT,
+        isolate_startup_s: float = 3.0,
         data_root: Path | None = None,
         quarantine_after: int = QUARANTINE_AFTER,
         on_change: Callable[[list[str], list[str]], None] | None = None,
@@ -238,6 +241,7 @@ class PluginRegistry:
         self.paths = [Path(p) for p in paths]
         self.config = config
         self.default_timeout = default_timeout
+        self.isolate_startup_s = isolate_startup_s
         self.data_root = Path(data_root) if data_root else Path.home() / ".capucine" / "data"
         self.quarantine_after = quarantine_after
         self.on_change = on_change
@@ -397,7 +401,16 @@ class PluginRegistry:
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module  # nécessaire aux dataclasses et au typing
         try:
-            spec.loader.exec_module(module)
+            # On compile la source nous-mêmes plutôt que d'appeler
+            # `exec_module`. Raison : le cache de bytecode de CPython est
+            # validé sur (date de modification, taille). Remplacer « Bonjour »
+            # par « Bonsoir » dans la même seconde ne change ni l'une ni
+            # l'autre — et le rechargement à chaud rejouerait silencieusement
+            # l'ancien code. Passer par `compile` supprime le problème à la
+            # racine, et évite d'écrire des .pyc dans le dossier des plugins.
+            source = path.read_text(encoding="utf-8")
+            code = compile(source, str(path), "exec")
+            exec(code, module.__dict__)  # noqa: S102 - c'est précisément le but
         except BaseException as exc:  # noqa: BLE001 - un plugin ne fait jamais tomber Capucine
             if isinstance(exc, KeyboardInterrupt):
                 raise
@@ -494,11 +507,21 @@ class PluginRegistry:
                 logger.exception("Le rappel on_change a échoué.")
 
     # -- exécution ----------------------------------------------------------
-    def call(self, name: str, arguments: Mapping[str, Any] | None = None) -> SkillResult:
+    def call(
+        self,
+        name: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        confirmed: bool = False,
+    ) -> SkillResult:
         """Exécute une compétence. Ne lève jamais.
 
         C'est la frontière : au-delà, un plugin peut faire n'importe quoi ; en
         deçà, le pipeline ne reçoit qu'un ``SkillResult``.
+
+        Une compétence déclarée ``confirm=`` n'est pas exécutée du premier
+        coup : elle rend un résultat qui **demande** confirmation, à charge du
+        pipeline de poser la question et de rappeler avec ``confirmed=True``.
         """
         spec = self.get(name)
         if spec is None:
@@ -515,9 +538,17 @@ class PluginRegistry:
         if dropped:
             logger.debug("Arguments ignorés pour %s : %s", name, ", ".join(dropped))
 
+        if spec.confirm and not confirmed:
+            question = spec.confirmation_question()
+            logger.info("Confirmation demandée avant « %s ».", name)
+            return SkillResult(
+                ok=True, skill=name, speak=question, display=question,
+                needs_confirmation=True, arguments=cleaned,
+            )
+
         started = time.perf_counter()
         try:
-            value = run_with_timeout(spec.func, cleaned, spec.timeout)
+            value = self._invoquer(spec, cleaned)
         except SkillTimeout as exc:
             elapsed = (time.perf_counter() - started) * 1000.0
             self._record_failure(spec)
@@ -534,6 +565,33 @@ class PluginRegistry:
         elapsed = (time.perf_counter() - started) * 1000.0
         spec.failures = 0
         return normalize_result(value, name, round(elapsed, 1))
+
+    def _invoquer(self, spec: SkillSpec, arguments: dict[str, Any]) -> Any:
+        """Exécute la compétence, en thread ou en sous-processus.
+
+        Le thread est le défaut : il est instantané et laisse le plugin garder
+        son état d'un appel à l'autre. ``isolate=True`` échange cet état et
+        100 à 300 ms de démarrage contre la seule garantie qui compte pour un
+        traitement capable de bloquer indéfiniment : un processus, lui, se tue.
+        """
+        if not spec.isolate:
+            return run_with_timeout(spec.func, arguments, spec.timeout)
+
+        from .isolation import run_isolated
+        from .plugin import contexte_de
+
+        contexte = contexte_de(spec.module)
+        return run_isolated(
+            spec.source,
+            spec.module,
+            getattr(spec.func, "__name__", spec.name),
+            arguments,
+            timeout=spec.timeout,
+            startup_s=self.isolate_startup_s,
+            plugin=spec.plugin,
+            config=dict(contexte.config) if contexte else {},
+            data_dir=contexte.data_dir if contexte else None,
+        )
 
     def _record_failure(self, spec: SkillSpec) -> None:
         spec.failures += 1

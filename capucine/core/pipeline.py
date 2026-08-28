@@ -41,7 +41,7 @@ from .logging import TurnTelemetry, get_logger
 from .plugin import set_announcer
 from .registry import PluginRegistry, SkillResult
 from .router import RouteDecision, Router
-from .text import stream_sentences
+from .text import accord_ou_refus, stream_sentences
 
 logger = get_logger("pipeline")
 
@@ -118,6 +118,8 @@ class Pipeline:
         # deux phrases et par la lecture entre deux tranches.
         self._barge_in = threading.Event()
         self._listener: VoiceListener | None = None
+        # Compétence irréversible en attente d'un « oui » : (nom, arguments).
+        self._confirmation: tuple[str, dict[str, Any]] | None = None
         self._events: asyncio.Queue[ListenerEvent] = asyncio.Queue()
 
     # -- état ---------------------------------------------------------------
@@ -176,6 +178,25 @@ class Pipeline:
         """Prononce les annonces en attente (minuteur, nouvelle compétence)."""
         while not self._announcements.empty():
             await self.say(self._announcements.get_nowait())
+
+    async def run_announcer(self, stop: asyncio.Event | None = None) -> None:
+        """Prononce les annonces dès qu'elles arrivent, sans attendre un tour.
+
+        Sans cette tâche de fond, un minuteur qui sonne pendant que Capucine
+        est au repos resterait muet jusqu'à la prochaine phrase de
+        l'utilisateur — ce qui vide un minuteur de son intérêt.
+
+        On patiente tant qu'elle parle ou qu'elle exécute une compétence :
+        interrompre l'utilisateur est le but, se couper soi-même ne l'est pas.
+        """
+        occupee = (State.THINK, State.ACT, State.SPEAK)
+        while stop is None or not stop.is_set():
+            message = await self._announcements.get()
+            for _ in range(600):   # une minute d'attente au maximum
+                if self._state not in occupee:
+                    break
+                await asyncio.sleep(0.1)
+            await self.say(message)
 
     def notify_skill_change(self, added: list[str], removed: list[str]) -> None:
         """Rappel branché sur le registre pour l'étape 4.
@@ -329,6 +350,61 @@ class Pipeline:
         result.speak = skill_result.speak
         result.display = skill_result.display or skill_result.speak
         self.conversation.add_tool_result(skill_result.skill, result.display)
+        self._memoriser_confirmation(result)
+
+    async def _traiter_confirmation(
+        self, result: TurnResult, telemetry: TurnTelemetry
+    ) -> bool:
+        """Interprète la phrase comme une réponse à une question en attente.
+
+        Une compétence déclarée ``confirm=`` n'est pas exécutée du premier
+        coup : Capucine pose la question, et le tour suivant est lu comme un
+        oui ou un non. Toute autre réponse annule l'attente et repart en
+        routage normal — on ne piège pas l'utilisateur dans une question.
+
+        Retourne ``True`` si le tour a été entièrement traité ici.
+        """
+        if self._confirmation is None:
+            return False
+        nom, arguments = self._confirmation
+        reponse = accord_ou_refus(result.utterance)
+
+        if reponse is None:
+            logger.debug("Confirmation abandonnée : la réponse ne tranche pas.")
+            self._confirmation = None
+            return False
+
+        self._confirmation = None
+        result.tier = "confirmation"
+        if not reponse:
+            result.speak = result.display = "Très bien, je n'ai rien fait."
+            self.conversation.add_assistant(result.speak)
+            telemetry.emit(etage="confirmation", outil=nom, ok=True, confirme=False)
+            self._set_state(State.IDLE)
+            return True
+
+        self._set_state(State.ACT)
+        with telemetry.stage("execution_ms"):
+            skill_result = await asyncio.to_thread(
+                self.registry.call, nom, arguments, confirmed=True
+            )
+        result.skill_result = skill_result
+        result.tool = ToolCall(name=nom, arguments=arguments, source="confirmation")
+        result.speak = skill_result.speak
+        result.display = skill_result.display or skill_result.speak
+        self.conversation.add_tool_result(skill_result.skill, result.display)
+        telemetry.emit(etage="confirmation", outil=nom, ok=skill_result.ok, confirme=True)
+        self._set_state(State.IDLE)
+        return True
+
+    def _memoriser_confirmation(self, result: TurnResult) -> bool:
+        """Retient la compétence en attente si elle réclame un accord."""
+        skill_result = result.skill_result
+        if skill_result is None or not skill_result.needs_confirmation:
+            return False
+        self._confirmation = (skill_result.skill, dict(skill_result.arguments))
+        logger.info("En attente d'une confirmation pour « %s ».", skill_result.skill)
+        return True
 
     def _echec(self, result: TurnResult, telemetry: TurnTelemetry) -> TurnResult:
         result.speak = result.display = "Je n'ai pas réussi à traiter cette demande."
@@ -346,6 +422,9 @@ class Pipeline:
             return result
 
         self.conversation.add_user(result.utterance)
+        if await self._traiter_confirmation(result, telemetry):
+            return result
+
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
             return self._echec(result, telemetry)
@@ -391,6 +470,10 @@ class Pipeline:
             return result
 
         self.conversation.add_user(result.utterance)
+        if await self._traiter_confirmation(result, telemetry):
+            await self.say(result.speak)
+            return result
+
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
             result = self._echec(result, telemetry)

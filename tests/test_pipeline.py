@@ -212,9 +212,12 @@ def test_l_assistant_complet_se_monte_depuis_une_config(tmp_path) -> None:
     })
     assistant = build_assistant(config, llm=MockLLM())
     try:
-        assert {"repete", "calculer"} <= set(assistant.registry.skills)
-        resultat = asyncio.run(assistant.pipeline.handle("12 * 8"))
-        assert resultat.speak == "Ça fait 96."
+        # Les quatre plugins livrés sont chargés et leurs compétences prêtes.
+        assert {"heure", "minuteur", "noter", "etat_systeme"} <= set(assistant.registry.skills)
+        assert not assistant.registry.failures()
+        resultat = asyncio.run(assistant.pipeline.handle("quelle heure est-il"))
+        assert resultat.tier == "regle"
+        assert resultat.speak.startswith("Il est ")
     finally:
         asyncio.run(assistant.aclose())
 

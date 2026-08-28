@@ -7,9 +7,39 @@ La contrainte qui prime sur toutes les autres décisions d'architecture :
 **ajouter une capacité, c'est déposer un fichier Python dans `plugins/`.** Sans
 redémarrer l'assistante, et sans jamais toucher au cœur.
 
-> **État : étape 3 sur 5 terminée.** Capucine écoute en permanence, se réveille
-> à son nom, attend que vous ayez fini votre phrase, et se tait si vous lui
-> coupez la parole. Le rechargement à chaud des plugins arrive à l'étape 4.
+> **État : étape 4 sur 5 terminée.** Le critère d'acceptation du projet passe :
+> déposez un fichier dans `plugins/` pendant que Capucine tourne, elle annonce
+> la nouvelle compétence et l'exécute — sans redémarrage et sans toucher au
+> cœur. Reste le profil Raspberry Pi et les mesures de latence.
+
+---
+
+## Le critère d'acceptation, en trois gestes
+
+Capucine tourne. Sans l'arrêter, sans toucher à une ligne du cœur :
+
+```bash
+cat > plugins/dés.py <<'EOF'
+import random
+from capucine.plugin import skill
+
+@skill(description="Lance un dé.", examples=["lance un dé", "tire un dé"])
+def lancer_de(faces: int = 6) -> str:
+    """Lance un dé à N faces."""
+    return str(random.randint(1, faces))
+EOF
+```
+
+```
+Capucine › Nouvelle compétence disponible : lancer de.
+Vous     › lance un dé à vingt faces
+Capucine › 13
+```
+
+Aucun modèle de langage n'a été sollicité : l'étage déterministe du routeur a
+reconnu l'outil sur ses `examples` et lu « vingt » comme `faces=20`. Le
+scénario est rejoué en entier par `tests/test_recette.py`, avec un vrai
+observateur de fichiers.
 
 ---
 
@@ -77,6 +107,16 @@ pip install -e ".[vosk]"
 python -m capucine.core.downloads vosk
 python main.py --profile pi --stt vosk
 ```
+
+### Ajouter le rechargement à chaud
+
+```bash
+pip install -e ".[reload]"
+```
+
+Sans `watchdog`, tout fonctionne mais il faut taper `/recharge` après avoir
+modifié un plugin. Avec, le dossier est surveillé et le registre se met à jour
+en quelques centaines de millisecondes.
 
 ### Ajouter l'écoute permanente
 
@@ -165,6 +205,8 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 |---|---|
 | `@skill(description=…, examples=…)` | Déclare la compétence. `examples` n'est pas décoratif : le routeur déterministe s'en sert pour choisir l'outil **sans** solliciter le modèle. |
 | `@skill(timeout=…)` | Délai maximum. Au-delà, Capucine répond qu'elle n'a pas pu exécuter la commande. |
+| `@skill(confirm="…")` | Action irréversible : Capucine pose la question et attend un oui avant d'exécuter. |
+| `@skill(isolate=True)` | Exécute dans un sous-processus, réellement tuable. Voir la limite assumée plus bas. |
 | Docstring | Contexte pour le modèle. Les sections `Args:` ou `:param x:` documentent chaque argument. |
 | `CONFIG_DEFAULTS = {…}` | Réglages du plugin, surchargés par `[plugins.<nom>]` du fichier de configuration. |
 | `get_config("cle")` | Lit ces réglages. Utilisable dès le corps du module. |
@@ -189,7 +231,16 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 * Un plugin en échec répété est mis en quarantaine et retiré du catalogue
   proposé au modèle.
 
-Les quatre fichiers de `plugins/` sont de la documentation vivante : lisez-les.
+### Les quatre plugins livrés
+
+Ce sont de la documentation vivante, chacun couvrant un cas différent :
+
+| Fichier | Ce qu'il montre |
+|---|---|
+| `heure.py` | Le contrat minimal, et le retour `{"speak", "display"}` : « neuf heures vingt » se dit, `09:20` se journalise. |
+| `minuteur.py` | De l'état en mémoire, `announce()` pour interrompre depuis une tâche de fond, et `on_unload()` qui annule les minuteries — sans lui, chaque rechargement laisserait des orphelines. |
+| `notes.py` | `data_dir()`, `CONFIG_DEFAULTS`, et `confirm=` sur l'effacement. |
+| `systeme.py` | Une dépendance optionnelle (`psutil`) traitée par dégradation plutôt que par échec, et du code qui diffère selon la plateforme sans que le cœur en sache rien. |
 
 ---
 
@@ -278,6 +329,29 @@ niveau sonore, on écarte une courte liste de formules connues, et on désactive
 `condition_on_previous_text`, qui fait boucler le modèle sur des énoncés
 courts.
 
+### Le rechargement à chaud
+
+Trois précautions, dont aucune ne se devine :
+
+* **Anti-rebond.** Un éditeur ne produit pas un événement par sauvegarde mais
+  trois ou quatre : fichier temporaire, renommage atomique, changement de
+  droits. Sans regroupement on rechargerait quatre fois — et la première sur
+  un fichier tronqué.
+* **Empreinte du contenu.** Un formateur, un `touch`, une synchronisation
+  réécrivent un fichier à l'identique. On compare le hachage : pas de
+  changement, pas de rechargement, pas d'annonce intempestive.
+* **Compilation directe de la source.** CPython valide son cache de bytecode
+  sur *(date de modification, taille)*. Remplacer « Bonjour » par « Bonsoir »
+  dans la même seconde ne change ni l'une ni l'autre : le rechargement
+  rejouerait silencieusement l'ancien code. Le registre compile la source
+  lui-même, ce qui supprime le problème et évite d'écrire des `.pyc` dans le
+  dossier des plugins.
+
+L'annonce vocale est volontairement discrète : on n'annonce qu'un nom de
+compétence *nouveau*. Pendant le développement, on enregistre un fichier trente
+fois par heure ; une Capucine qui commente chaque sauvegarde devient vite
+insupportable.
+
 ### L'écoute permanente
 
 **Un seul thread tient le micro**, ouvert du début à la fin de la session.
@@ -334,9 +408,11 @@ CAPUCINE_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
 python -m pytest
 ```
 
-202 tests, aucun modèle téléchargé, aucun périphérique audio requis. La boucle
-complète — éveil, énoncé, réponse, suivi, barge-in — est éprouvée avec un micro
-en mémoire, un mot d'éveil scripté et un VAD scripté. Les adaptateurs Piper et
+253 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
+d'acceptation est joué en entier — vrai observateur `watchdog`, vrai fichier
+déposé pendant l'exécution. La boucle vocale — éveil, énoncé, réponse, suivi,
+barge-in — est éprouvée avec un micro en mémoire, un mot d'éveil scripté et un
+VAD scripté. Les adaptateurs Piper et
 faster-whisper sont en plus vérifiés contre les **signatures réelles** des
 bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suite.
 
@@ -349,7 +425,7 @@ bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suit
 | 1 | Squelette, config, interfaces, registre de plugins, routeur, mode texte | **fait** |
 | 2 | STT (`faster-whisper`, Vosk) + TTS (`piper`), pipeline vocal au clavier | **fait** |
 | 3 | Mot d'éveil « Capucine » (`openWakeWord` + repli Vosk), VAD (`silero`), barge-in, mode suivi | **fait** |
-| 4 | Rechargement à chaud (`watchdog`), plugins d'exemple (heure, minuteur, notes, système) | à venir |
+| 4 | Rechargement à chaud (`watchdog`), isolation en sous-processus, confirmation, quatre plugins d'exemple | **fait** |
 | 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | à venir |
 
 ### Entraîner le mot d'éveil
@@ -374,10 +450,23 @@ la qualité des positifs est le facteur limitant, d'où la sous-commande
 débit, couleur et niveau. Attendez-vous à ce que le repli Vosk reste le chemin
 principal un certain temps.
 
-### Limite assumée
+### La limite annoncée à l'étape 1, et sa parade
 
 On ne peut pas tuer un thread en Python. Un plugin parti en boucle infinie est
 *abandonné* — Capucine répond et le met en quarantaine — mais son thread
-continue jusqu'à ce qu'il finisse. La seule parade réelle est le sous-processus,
-qui coûte 100 à 300 ms au démarrage sur Pi et interdit l'état en mémoire (donc
-le minuteur). Ce sera une option déclarée par skill, pas le défaut.
+continue jusqu'à ce qu'il finisse.
+
+La parade existe désormais, en option et par compétence :
+
+```python
+@skill(description="…", isolate=True, timeout=5)
+def analyse_lourde(fichier: str) -> str:
+    ...
+```
+
+Le sous-processus est réellement tuable. Le prix est réel aussi, et c'est
+pourquoi ce n'est pas le défaut : 100 à 300 ms de démarrage par appel, des
+arguments et un retour qui doivent être sérialisables, et aucun état conservé
+entre deux appels — un minuteur ne peut pas s'isoler. À réserver aux
+compétences qui manipulent des données douteuses ou des bibliothèques natives
+capables de bloquer indéfiniment.

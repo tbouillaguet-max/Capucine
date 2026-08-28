@@ -41,6 +41,7 @@ __all__ = [
     "set_announcer",
     "register_context",
     "clear_context",
+    "contexte_de",
     "SKILL_ATTRIBUTE",
 ]
 
@@ -55,7 +56,8 @@ class SkillDeclaration:
     examples: tuple[str, ...]
     name: str | None
     timeout: float | None
-    confirm: bool
+    confirm: bool | str
+    isolate: bool = False
 
 
 def skill(
@@ -65,7 +67,8 @@ def skill(
     examples: list[str] | tuple[str, ...] | None = None,
     name: str | None = None,
     timeout: float | None = None,
-    confirm: bool = False,
+    confirm: bool | str = False,
+    isolate: bool = False,
 ) -> Callable[..., Any]:
     """Déclare une fonction comme compétence de Capucine.
 
@@ -78,8 +81,15 @@ def skill(
         name: Nom d'outil, si le nom de la fonction ne convient pas.
         timeout: Délai maximum d'exécution, en secondes. Au-delà, Capucine
             répond qu'elle n'a pas pu exécuter la commande.
-        confirm: Réservé aux actions irréversibles ; Capucine demandera
-            confirmation avant d'exécuter (câblé à l'étape 4).
+        confirm: Pour les actions irréversibles. ``True`` fait poser une
+            question générique avant d'exécuter ; une chaîne fournit la
+            question exacte (« Voulez-vous vraiment effacer toutes les
+            notes ? »).
+        isolate: Exécute la compétence dans un sous-processus, réellement
+            tuable au bout du délai. Coûte 100 à 300 ms par appel, interdit
+            l'état en mémoire, et exige des arguments et un retour
+            sérialisables. À réserver aux traitements capables de bloquer
+            indéfiniment.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -94,6 +104,7 @@ def skill(
                 name=name,
                 timeout=timeout,
                 confirm=confirm,
+                isolate=isolate,
             ),
         )
         return func
@@ -114,7 +125,8 @@ class SkillSpec:
     description: str
     examples: tuple[str, ...]
     timeout: float | None
-    confirm: bool
+    confirm: bool | str
+    isolate: bool
     tool_schema: dict[str, Any]
     parameters_schema: dict[str, Any]
     plugin: str
@@ -133,6 +145,12 @@ class SkillSpec:
     @property
     def parameter_names(self) -> list[str]:
         return list(self.parameters_schema.get("properties", {}))
+
+    def confirmation_question(self) -> str:
+        """La question posée avant d'exécuter une action irréversible."""
+        if isinstance(self.confirm, str) and self.confirm.strip():
+            return self.confirm.strip()
+        return f"Voulez-vous vraiment que j'exécute « {self.name.replace('_', ' ')} » ?"
 
     def matchable_phrases(self) -> list[str]:
         """Ce que le routeur déterministe compare à la phrase entendue."""
@@ -165,6 +183,7 @@ def build_skill_spec(
         examples=declaration.examples,
         timeout=declaration.timeout,
         confirm=declaration.confirm,
+        isolate=declaration.isolate,
         tool_schema=tool_schema,
         parameters_schema=parameters_schema,
         plugin=plugin,
@@ -201,6 +220,11 @@ def register_context(context: PluginContext) -> None:
 
 def clear_context(module: str) -> None:
     _CONTEXTS.pop(module, None)
+
+
+def contexte_de(module: str) -> PluginContext | None:
+    """Contexte enregistré pour un module donné, s'il existe."""
+    return _CONTEXTS.get(module)
 
 
 def _caller_context(depth: int = 2) -> PluginContext | None:

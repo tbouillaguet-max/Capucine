@@ -35,6 +35,7 @@ from .core.logging import get_logger
 from .core.pipeline import Pipeline
 from .core.registry import PluginRegistry
 from .core.router import Router
+from .core.watcher import PluginWatcher
 
 logger = get_logger("app")
 
@@ -54,8 +55,11 @@ class Assistant:
     vad: VADEngine | None = None
     wake: WakeWordEngine | None = None
     listener: VoiceListener | None = None
+    watcher: PluginWatcher | None = None
 
     async def aclose(self) -> None:
+        if self.watcher is not None:
+            self.watcher.stop()
         if self.listener is not None:
             self.listener.stop()
         await self.pipeline.aclose()
@@ -103,6 +107,7 @@ def build_assistant(
         config.plugin_paths(),
         config=config,
         default_timeout=float(config.get("plugins.timeout", 10.0)),
+        isolate_startup_s=float(config.get("plugins.isolate_startup_s", 3.0)),
         data_root=config.resolve_path("plugins.data_dir"),
         quarantine_after=int(config.get("plugins.quarantine_after", 3)),
     )
@@ -140,6 +145,20 @@ def build_assistant(
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
     )
+
+
+def start_hot_reload(assistant: Assistant) -> bool:
+    """Démarre la surveillance de ``plugins/``. À appeler une fois la boucle
+    asyncio en place, pour que les annonces vocales aient où aller."""
+    config = assistant.config
+    if not bool(config.get("plugins.hot_reload", True)):
+        logger.info("Rechargement à chaud désactivé par la configuration.")
+        return False
+    assistant.watcher = PluginWatcher(
+        assistant.registry,
+        debounce_ms=float(config.get("plugins.debounce_ms", 500)),
+    )
+    return assistant.watcher.start()
 
 
 def build_listener(
@@ -263,10 +282,15 @@ async def run_text_mode(assistant: Assistant, once: str | None = None) -> int:
     qu'une seule ligne d'audio soit nécessaire.
     """
     assistant.pipeline.attach()
+    annonceur: asyncio.Task | None = None
     try:
         if once is not None:
             result = await assistant.pipeline.handle_and_speak(once)
             return 0 if (result.skill_result is None or result.skill_result.ok) else 1
+
+        if start_hot_reload(assistant):
+            print("Rechargement à chaud actif : déposez un fichier dans plugins/.")
+        annonceur = asyncio.ensure_future(assistant.pipeline.run_announcer())
 
         print(f"Capucine — mode texte ({assistant.llm.describe()}, profil "
               f"{assistant.config.get('profile')}). /aide pour les commandes.")
@@ -289,6 +313,10 @@ async def run_text_mode(assistant: Assistant, once: str | None = None) -> int:
                 continue
             await assistant.pipeline.handle_and_speak(line)
     finally:
+        if annonceur is not None:
+            annonceur.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await annonceur
         assistant.pipeline.detach()
 
 
@@ -341,6 +369,7 @@ async def run_voice_mode(
     """
     pipeline = assistant.pipeline
     pipeline.attach()
+    annonceur: asyncio.Task | None = None
     try:
         _annoncer_moteurs(assistant)
         _annoncer_demarrage(assistant)
@@ -350,10 +379,19 @@ async def run_voice_mode(
         if once:
             resultat = await pipeline.voice_turn()
             return 0 if resultat.utterance else 1
+
+        if start_hot_reload(assistant):
+            print("Rechargement à chaud actif : déposez un fichier dans plugins/.")
+        annonceur = asyncio.ensure_future(pipeline.run_announcer())
+
         if push_to_talk:
             return await _boucle_appui_pour_parler(assistant)
         return await _boucle_continue(assistant, use_wake=use_wake)
     finally:
+        if annonceur is not None:
+            annonceur.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await annonceur
         pipeline.detach()
 
 

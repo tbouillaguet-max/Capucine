@@ -18,6 +18,10 @@ announce_new_skills = true  # annonce vocale des compétences nouvellement charg
 # ultérieur masquant un même nom de fichier.
 paths = ["./plugins", "~/.capucine/plugins"]
 timeout = 10.0              # délai par défaut d'un skill, en secondes
+# Marge ajoutée au délai pour @skill(isolate=True), le temps que l'interpréteur
+# enfant démarre. Montez-la si un Pi lent voit ses compétences isolées tuées
+# avant d'avoir commencé.
+isolate_startup_s = 3.0
 quarantine_after = 3        # échecs consécutifs avant désactivation d'un skill
 data_dir = "~/.capucine/data"
 hot_reload = true           # surveillance du dossier (étape 4)

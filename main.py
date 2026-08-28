@@ -50,6 +50,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="remplace vad.engine : silero ou energie")
     parser.add_argument("--plugins", metavar="DOSSIER", action="append",
                         help="dossier de plugins supplémentaire (répétable)")
+    parser.add_argument("--no-hot-reload", action="store_true",
+                        help="ne surveille pas plugins/ (la commande /recharge reste)")
 
     ecoute = parser.add_argument_group("écoute")
     ecoute.add_argument("--push-to-talk", action="store_true",
@@ -92,6 +94,8 @@ def build_overrides(args: argparse.Namespace) -> dict:
         overrides.setdefault("barge_in", {})["mode"] = args.barge_in
     if args.plugins:
         overrides.setdefault("plugins", {})["paths"] = list(args.plugins)
+    if args.no_hot_reload:
+        overrides.setdefault("plugins", {})["hot_reload"] = False
     if args.log_level:
         overrides.setdefault("logging", {})["level"] = args.log_level
     if args.json_logs:
