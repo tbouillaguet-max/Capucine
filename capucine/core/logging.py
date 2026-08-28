@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 import time
+from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -79,6 +81,98 @@ def log_with(logger: logging.Logger, level: int, message: str, **fields: Any) ->
 
 
 @dataclass
+class Statistiques:
+    """Ce qu'on retient d'un étage : combien, et à quelle vitesse."""
+
+    etage: str
+    nombre: int
+    p50_ms: float
+    p90_ms: float
+    max_ms: float
+
+
+class LatencyBook:
+    """Agrège les latences par étage, sur les N derniers tours.
+
+    Une ligne de journal par tour suffit à comprendre un tour ; elle ne dit
+    rien de la tendance. Sur Raspberry Pi, ce qu'on veut savoir c'est « où
+    part la seconde et demie », et la réponse est une médiane, pas un cas.
+
+    Les échantillons sont bornés : un assistant qui tourne des semaines ne
+    doit pas grossir indéfiniment.
+    """
+
+    def __init__(self, max_samples: int = 200) -> None:
+        self.max_samples = max_samples
+        self._echantillons: dict[str, deque[float]] = {}
+        self._verrou = threading.Lock()
+
+    def record(self, etage: str, millisecondes: float) -> None:
+        with self._verrou:
+            file = self._echantillons.setdefault(etage, deque(maxlen=self.max_samples))
+            file.append(float(millisecondes))
+
+    def reset(self) -> None:
+        with self._verrou:
+            self._echantillons.clear()
+
+    def snapshot(self) -> list[Statistiques]:
+        with self._verrou:
+            copie = {etage: list(valeurs) for etage, valeurs in self._echantillons.items()}
+        stats = [
+            Statistiques(
+                etage=etage,
+                nombre=len(valeurs),
+                p50_ms=_centile(valeurs, 50),
+                p90_ms=_centile(valeurs, 90),
+                max_ms=max(valeurs),
+            )
+            for etage, valeurs in copie.items() if valeurs
+        ]
+        # Le plus coûteux d'abord : c'est ce qu'on veut lire en premier.
+        stats.sort(key=lambda s: s.p50_ms, reverse=True)
+        return stats
+
+    def table(self) -> str:
+        stats = self.snapshot()
+        if not stats:
+            return "Aucune latence mesurée pour l'instant."
+        entete = f"{'étage':<18}{'n':>5}{'médiane':>12}{'p90':>12}{'max':>12}"
+        lignes = [entete, "-" * len(entete)]
+        for stat in stats:
+            lignes.append(
+                f"{stat.etage:<18}{stat.nombre:>5}"
+                f"{_ms(stat.p50_ms):>12}{_ms(stat.p90_ms):>12}{_ms(stat.max_ms):>12}"
+            )
+        return "\n".join(lignes)
+
+
+def _ms(millisecondes: float) -> str:
+    """Une durée lisible : on ne lit pas « 1847 ms » aussi vite que « 1,85 s »."""
+    if millisecondes >= 1000:
+        return f"{millisecondes / 1000:.2f} s"
+    if millisecondes >= 10:
+        return f"{millisecondes:.0f} ms"
+    return f"{millisecondes:.1f} ms"
+
+
+def _centile(valeurs: list[float], centile: int) -> float:
+    if not valeurs:
+        return 0.0
+    ordonnees = sorted(valeurs)
+    rang = min(len(ordonnees) - 1, int(round(centile / 100 * (len(ordonnees) - 1))))
+    return round(ordonnees[rang], 1)
+
+
+_LIVRE = LatencyBook()
+
+
+def get_latency_book() -> LatencyBook:
+    """Le carnet de latences partagé par tout le processus."""
+    return _LIVRE
+
+
+@dataclass
 class TurnTelemetry:
     """Chronomètre les étages d'un tour et les journalise en une ligne."""
 
@@ -104,7 +198,12 @@ class TurnTelemetry:
         return round((time.perf_counter() - self.started) * 1000.0, 1)
 
     def emit(self, **fields: Any) -> None:
+        total = self.total_ms
+        livre = get_latency_book()
+        for etage, valeur in self.stages.items():
+            livre.record(etage.removesuffix("_ms"), valeur)
+        livre.record("total", total)
         log_with(
             self._logger, logging.INFO, f"{self.name} terminé",
-            total_ms=self.total_ms, **self.stages, **fields,
+            total_ms=total, **self.stages, **fields,
         )

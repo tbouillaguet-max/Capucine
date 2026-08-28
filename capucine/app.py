@@ -31,7 +31,8 @@ from .core.interfaces.tts import TTSEngine
 from .core.interfaces.vad import VADEngine
 from .core.interfaces.wake import WakeWordEngine
 from .core.listener import BargeInMode, ListenMode, VoiceListener
-from .core.logging import get_logger
+from .core.logging import get_latency_book, get_logger
+from .core.machine import conseils, decrire
 from .core.pipeline import Pipeline
 from .core.registry import PluginRegistry
 from .core.router import Router
@@ -215,7 +216,8 @@ def build_listener(
 
 # --- commandes communes aux deux modes -------------------------------------
 
-AIDE = """Commandes : /aide  /competences  /plugins  /recharge  /oublie  /quitter
+AIDE = """Commandes : /aide  /competences  /plugins  /recharge  /latences  /machine
+            /oublie  /quitter
 En mode vocal, une ligne vide déclenche l'écoute ; tout autre texte est traité
 comme si vous l'aviez dit."""
 
@@ -259,6 +261,17 @@ def _handle_command(assistant: Assistant, line: str) -> bool:
     elif command in ("/recharge", "/reload"):
         assistant.registry.load_all()
         print(_format_skills(assistant))
+    elif command in ("/latences", "/latence"):
+        print(get_latency_book().table())
+        print("\nPour un relevé complet : python tools/mesurer_latence.py")
+    elif command in ("/machine", "/materiel"):
+        machine = decrire()
+        print(f"Machine : {machine.resume()}")
+        print(f"Profil actif : {assistant.config.get('profile')} "
+              f"(conseillé : {machine.profil_conseille})")
+        remarques = conseils(assistant.config, machine)
+        print("\n".join(f"  • {remarque}" for remarque in remarques)
+              or "  Rien à signaler.")
     elif command in ("/oublie", "/clear"):
         assistant.conversation.clear()
         print("Mémoire de conversation vidée.")
@@ -271,6 +284,10 @@ def _annoncer_demarrage(assistant: Assistant) -> None:
     print(_format_skills(assistant))
     for record in assistant.registry.failures():
         print(f"  ! plugin ignoré : {record.name} — {record.error}")
+    # Mieux vaut prévenir que laisser découvrir qu'une transcription prend
+    # douze secondes : les remarques matérielles sortent au démarrage.
+    for remarque in conseils(assistant.config):
+        print(f"  ⚠ {remarque}")
 
 
 # --- mode texte ------------------------------------------------------------

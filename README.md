@@ -7,10 +7,10 @@ La contrainte qui prime sur toutes les autres décisions d'architecture :
 **ajouter une capacité, c'est déposer un fichier Python dans `plugins/`.** Sans
 redémarrer l'assistante, et sans jamais toucher au cœur.
 
-> **État : étape 4 sur 5 terminée.** Le critère d'acceptation du projet passe :
-> déposez un fichier dans `plugins/` pendant que Capucine tourne, elle annonce
-> la nouvelle compétence et l'exécute — sans redémarrage et sans toucher au
-> cœur. Reste le profil Raspberry Pi et les mesures de latence.
+> **État : les cinq étapes sont terminées.** Le critère d'acceptation du projet
+> passe : déposez un fichier dans `plugins/` pendant que Capucine tourne, elle
+> annonce la nouvelle compétence et l'exécute — sans redémarrage et sans
+> toucher au cœur.
 
 ---
 
@@ -46,104 +46,141 @@ observateur de fichiers.
 ## Installation
 
 Python 3.11 ou plus récent. Le cœur ne dépend que de la bibliothèque standard ;
-tout le reste est optionnel et chargé paresseusement.
+tout le reste est optionnel et chargé paresseusement. On installe donc par
+couches, et Capucine fonctionne à chaque étape.
 
-```bash
+Rien n'est jamais téléchargé automatiquement au démarrage : un assistant censé
+fonctionner le Wi-Fi coupé ne sort pas sur le réseau sans qu'on le lui demande.
+
+### Windows
+
+```powershell
 git clone https://github.com/tbouillaguet-max/Capucine.git
 cd Capucine
-python -m venv .venv
-source .venv/bin/activate          # Windows : .venv\Scripts\activate
-pip install -e ".[dev]"
-```
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev,reload]"
 
-Essayez immédiatement, sans aucun modèle :
-
-```bash
+# Essayez tout de suite, sans le moindre modèle :
 python main.py --text --llm mock
 ```
 
-### Ajouter un modèle de langage local
+**Le modèle de langage.** Installez [Ollama](https://ollama.com/download), puis :
 
-**Ollama (recommandé sur PC)** — [ollama.com/download](https://ollama.com/download),
-puis :
-
-```bash
+```powershell
 pip install -e ".[llm-ollama]"
-ollama pull qwen2.5:7b-instruct-q4_K_M     # PC
-ollama pull qwen2.5:3b-instruct-q4_K_M     # Raspberry Pi
+ollama pull qwen2.5:7b-instruct-q4_K_M
 python main.py --text
 ```
 
-Ollama tourne comme un service **sur votre machine**. Capucine valide l'hôte et
-refuse de démarrer s'il n'est pas une adresse de bouclage : rien ne sort de la
-machine.
+**La voix.** `sounddevice` embarque PortAudio dans ses roues Windows : rien à
+installer à côté.
 
-**llama.cpp en processus** — si vous préférez éviter le démon :
-
-```bash
-pip install -e ".[llm-llamacpp]"
-# déposez un GGUF dans models/, puis dans config/pc.toml :
-#   [llm]
-#   engine = "llamacpp"
-#   model_path = "models/qwen2.5-7b-instruct-q4_k_m.gguf"
-#   n_gpu_layers = 35
-```
-
-### Ajouter la voix
-
-```bash
+```powershell
 pip install -e ".[audio]"
-python -m capucine.core.downloads tout        # voix Piper + modèle Whisper
-python main.py --push-to-talk                 # [Entrée] pour parler
+python -m capucine.core.downloads tout     # voix Piper + modèle Whisper
+python main.py --devices                   # repérez votre micro
+python main.py --push-to-talk
 ```
 
-Sous Linux, `sounddevice` réclame PortAudio : `sudo apt install libportaudio2`.
-Sur Raspberry Pi, ajoutez `--profile pi` (modèle Whisper plus petit, faisceau
-de recherche réduit) ; si la transcription dépasse la seconde et demie, passez
-à Vosk :
+Avec un GPU NVIDIA, `stt.device = "cuda"` dans `config/pc.toml` divise le temps
+de transcription par cinq à dix. Il faut CUDA et cuDNN installés ; sans eux,
+`faster-whisper` échoue au chargement — laissez `"auto"` en cas de doute.
 
-```bash
-pip install -e ".[vosk]"
+**L'écoute permanente.**
+
+```powershell
+pip install -e ".[wake,vosk]"
+pip install --no-deps silero-vad           # --no-deps n'est pas une coquille, voir plus bas
 python -m capucine.core.downloads vosk
-python main.py --profile pi --stt vosk
+python main.py                             # dites « Capucine »
 ```
 
-### Ajouter le rechargement à chaud
+### Linux et Raspberry Pi
 
 ```bash
-pip install -e ".[reload]"
+sudo apt update
+sudo apt install python3 python3-venv python3-dev git libportaudio2
+
+git clone https://github.com/tbouillaguet-max/Capucine.git
+cd Capucine
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,reload]"
+
+python main.py --text --llm mock
 ```
 
-Sans `watchdog`, tout fonctionne mais il faut taper `/recharge` après avoir
-modifié un plugin. Avec, le dossier est surveillé et le registre se met à jour
-en quelques centaines de millisecondes.
-
-### Ajouter l'écoute permanente
+**Le modèle de langage.** Ollama tourne sur ARM 64 bits :
 
 ```bash
-pip install -e ".[wake]"
-pip install --no-deps silero-vad    # voir plus bas : --no-deps n'est pas une coquille
-python main.py                      # dites « Capucine »
+curl -fsSL https://ollama.com/install.sh | sh
+pip install -e ".[llm-ollama]"
+ollama pull qwen2.5:3b-instruct-q4_K_M     # 1,5b si vous avez 2 Go de RAM
 ```
 
-Rien n'est téléchargé automatiquement au démarrage : un assistant censé
-fonctionner le Wi-Fi coupé ne sort pas sur le réseau sans qu'on le lui demande.
-
-**Le mot d'éveil demande un modèle qui n'existe pas encore.** openWakeWord ne
-fournit aucun modèle « capucine » pré-entraîné ; il faut l'entraîner, ce que
-pilote `tools/entrainer_capucine.py`. En attendant, Capucine bascule
-automatiquement sur le repli Vosk à grammaire restreinte :
+**La voix et l'écoute.**
 
 ```bash
-pip install -e ".[vosk]"
+pip install -e ".[audio,wake,vosk]"
+pip install --no-deps silero-vad
+python -m capucine.core.downloads tout --profile pi
 python -m capucine.core.downloads vosk
-python main.py                      # le repli s'active tout seul
+
+python main.py --devices                   # repérez votre micro USB
+python main.py --profile pi
 ```
 
-Ce n'est pas une panne, c'est un état normal du projet — et il est
-parfaitement utilisable.
+Sur Raspberry Pi, deux réglages système comptent autant que la configuration :
 
----
+```bash
+# 1. De l'espace d'échange, sinon le premier chargement de Whisper échoue.
+sudo dphys-swapfile swapoff
+sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile
+sudo dphys-swapfile setup && sudo dphys-swapfile swapon
+
+# 2. Le processeur en performance : sinon il descend en fréquence pendant
+#    l'inférence, exactement quand on en a besoin.
+sudo apt install cpufrequtils
+echo 'GOVERNOR="performance"' | sudo tee /etc/default/cpufrequtils
+```
+
+Le profil `pi` est appliqué automatiquement sur une carte ARM. `python main.py
+--text` affiche au démarrage les réglages qui vont décevoir sur votre machine —
+Whisper trop gros pour la RAM disponible, contexte trop long, barge-in par la
+voix sur haut-parleur ouvert.
+
+### Démarrage automatique sur Raspberry Pi
+
+```bash
+sudo cp deploy/capucine.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now capucine
+journalctl -u capucine -f
+```
+
+Le fichier est commenté et à adapter : utilisateur, chemins, périphérique
+audio. Il journalise en JSON, ce qui permet d'agréger les latences ailleurs.
+
+### Pourquoi `pip install --no-deps silero-vad`
+
+Le paquet `silero-vad` importe `torch` **et** `torchaudio` dès son `__init__`,
+y compris sur le chemin ONNX : plusieurs centaines de méga-octets sur un Pi,
+pour un modèle de moins d'un méga-octet. Or le fichier `silero_vad.onnx` est
+livré *dans* le paquet. Capucine le localise sans importer le paquet et
+l'exécute avec `onnxruntime` : mêmes poids, sans la chaîne torch.
+
+Sans lui, un VAD par énergie à plancher de bruit adaptatif prend le relais
+automatiquement — moins fin dans le bruit, mais opérationnel partout.
+
+### Le mot d'éveil demande un modèle qui n'existe pas encore
+
+openWakeWord ne fournit aucun modèle « capucine » pré-entraîné ; il faut
+l'entraîner, ce que pilote `tools/entrainer_capucine.py`. En attendant,
+Capucine bascule automatiquement sur le repli Vosk à grammaire restreinte —
+un décodeur qui n'a le droit de reconnaître que « capucine » et rien d'autre,
+donc rapide et peu gourmand. Ce n'est pas une panne, c'est un état normal du
+projet.
 
 ## Utilisation
 
@@ -361,15 +398,6 @@ détecteur de mot d'éveil, vers le découpeur d'énoncé, ou vers la surveillan
 d'interruption. Le thread ne décide de rien : il émet des événements que la
 boucle asyncio consomme.
 
-**Silero VAD tourne sous onnxruntime, sans torch.** Le paquet `silero-vad`
-importe `torch` et `torchaudio` dès son `__init__`, y compris sur le chemin
-ONNX — plusieurs centaines de méga-octets sur un Pi pour un modèle de moins
-d'un méga-octet. Or le fichier `silero_vad.onnx` est livré *dans* le paquet.
-Capucine le localise sans importer le paquet et l'exécute avec onnxruntime :
-mêmes poids, sans la chaîne torch. D'où le `pip install --no-deps silero-vad`.
-Si rien n'est disponible, un VAD par énergie à plancher de bruit adaptatif
-prend le relais — moins fin dans le bruit, mais opérationnel partout.
-
 **Terminer une phrase sans couper l'utilisateur** demande trois précautions :
 un silence exigé plus long qu'on ne le croit (700 ms), un **pré-roll** qui
 conserve l'audio *précédant* la détection — sans quoi la première syllabe est
@@ -402,13 +430,44 @@ CAPUCINE_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
 
 ---
 
+## Mesurer et régler
+
+```bash
+python tools/mesurer_latence.py                  # tout ce qui est disponible
+python tools/mesurer_latence.py --profile pi
+python tools/mesurer_latence.py --wav essai.wav  # transcrire un vrai enregistrement
+python tools/mesurer_latence.py --json           # pour comparer deux machines
+```
+
+Les deux familles de chiffres ne se lisent pas de la même façon.
+
+**Les étages permanents** — mot d'éveil et VAD — tournent en continu, du
+démarrage à l'extinction. Ce qui compte pour eux n'est pas la latence mais le
+**facteur temps réel** : le rapport entre le temps de calcul et la durée
+d'audio traitée. À 0,10, un cœur sur dix est occupé en permanence ; au-dessus
+de 0,5, le Pi n'aura plus de souffle pour transcrire. Le banc additionne les
+deux et vous dit combien d'un cœur part en fond de tâche.
+
+**Les étages à la demande** — transcription, routage, plugin, synthèse — ne
+coûtent que pendant un tour. Là c'est la latence qui compte, et surtout le
+**temps avant la première parole** : c'est lui que l'utilisateur ressent, pas
+la durée totale de la réponse.
+
+En cours de session, `/latences` donne la médiane, le p90 et le maximum par
+étage sur les derniers tours, et `/machine` relit la configuration à la lumière
+du matériel détecté.
+
+> Les chiffres dépendent tellement de la machine que ce dépôt n'en publie
+> aucun comme référence. Mesurez les vôtres : c'est une commande, et c'est la
+> seule façon honnête de savoir si votre carte suit.
+
 ## Tests
 
 ```bash
 python -m pytest
 ```
 
-253 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
+278 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
 d'acceptation est joué en entier — vrai observateur `watchdog`, vrai fichier
 déposé pendant l'exécution. La boucle vocale — éveil, énoncé, réponse, suivi,
 barge-in — est éprouvée avec un micro en mémoire, un mot d'éveil scripté et un
@@ -426,7 +485,7 @@ bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suit
 | 2 | STT (`faster-whisper`, Vosk) + TTS (`piper`), pipeline vocal au clavier | **fait** |
 | 3 | Mot d'éveil « Capucine » (`openWakeWord` + repli Vosk), VAD (`silero`), barge-in, mode suivi | **fait** |
 | 4 | Rechargement à chaud (`watchdog`), isolation en sous-processus, confirmation, quatre plugins d'exemple | **fait** |
-| 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | à venir |
+| 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | **fait** |
 
 ### Entraîner le mot d'éveil
 

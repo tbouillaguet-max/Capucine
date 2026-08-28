@@ -1,40 +1,79 @@
-# Profil Raspberry Pi / mini-PC Linux : le même code, une autre configuration.
+# Profil Raspberry Pi / mini-PC Linux.
+#
+# Le même code que sur PC : seule cette configuration change. Les valeurs
+# ci-dessous visent un Pi 4 ou 5 avec au moins 4 Go de RAM. Les commentaires
+# indiquent quoi changer en dessous.
+#
+# Vérifiez ce que ça donne chez vous :
+#     python tools/mesurer_latence.py --profile pi
+# Ce qui compte d'abord, ce sont les étages permanents : le mot d'éveil et le
+# VAD tournent en continu, et leur facteur temps réel additionné dit combien
+# d'un cœur part en fond de tâche.
+
+[assistant]
+# Une mémoire plus courte, c'est un contexte plus court à chaque inférence :
+# c'est le réglage qui coûte le moins et rapporte le plus sur un petit modèle.
+memory_turns = 4
+follow_up_seconds = 6.0
 
 [llm]
 engine = "ollama"
 model = "qwen2.5:3b-instruct-q4_K_M"
+# Sur 2 Go de RAM, descendez à "qwen2.5:1.5b-instruct-q4_K_M".
+# Sur 8 Go, "qwen2.5:7b-instruct-q4_K_M" tient, à environ 4 s par réponse.
 num_ctx = 2048
+keep_alive = "30m"          # recharger le modèle coûte plus cher que le garder
 
 [llm.router]
 # Sur Pi, chaque appel au modèle coûte cher : on fait davantage confiance à
 # l'étage déterministe, quitte à être un peu plus permissif.
 direct_threshold = 0.65
+shortlist_size = 4          # moins d'outils dans le contexte, moins de jetons
 
 [stt]
-# Sur Pi, « base » reste tenable ; passez à « vosk » si la latence dépasse
-# la seconde et demie.
+# « base » reste tenable sur un Pi 4 ; « tiny » sur un Pi 3.
+# Si la transcription dépasse une seconde et demie, passez à Vosk : il
+# transcrit en temps réel là où Whisper prend plusieurs secondes.
+engine = "faster-whisper"
 model = "base"
 device = "cpu"
 compute_type = "int8"
 beam_size = 1               # le faisceau coûte cher et n'apporte presque rien ici
+cpu_threads = 3             # on laisse un cœur au mot d'éveil et à l'audio
 
 [tts]
 voice = "fr_FR-siwis-medium"
-
-[plugins]
-timeout = 15.0
-
-[audio]
-frame_ms = 30
+# « low » est deux fois plus rapide et nettement moins agréable ; à réserver
+# aux cartes les plus lentes.
+# voice = "fr_FR-gilles-low"
 
 [wake]
-# Sur Pi, Vosk d'emblée : il consomme peu et tourne en continu sans peine.
+# Vosk d'emblée : il consomme peu et tourne en continu sans peine. Basculez
+# sur openwakeword une fois le modèle « capucine » entraîné.
 engine = "vosk"
 
 [vad]
 engine = "silero"           # onnxruntime seulement, torch n'est jamais requis
+# Un Pi est souvent plus loin du micro : on laisse un peu plus de temps.
+silence_ms = 800
+max_wait_s = 10.0
 
 [barge_in]
-# Un Pi est souvent branché sur un haut-parleur ouvert : n'interrompre que sur
-# le mot d'éveil évite qu'il se coupe lui-même.
+# Un Pi est souvent branché sur un haut-parleur ouvert, sans annulation
+# d'écho : n'interrompre que sur le mot d'éveil évite qu'il se coupe lui-même.
 mode = "eveil"
+
+[plugins]
+timeout = 15.0              # tout est plus lent, y compris les plugins
+isolate_startup_s = 6.0     # un interpréteur met plus longtemps à démarrer
+debounce_ms = 800           # une carte SD écrit lentement
+
+[audio]
+frame_ms = 30
+# Renseignez le périphérique si la carte son par défaut n'est pas la bonne :
+#     python main.py --devices
+# input_device = "USB PnP Sound Device"
+
+[logging]
+level = "INFO"
+json = false                # passez à true pour agréger les latences ailleurs
