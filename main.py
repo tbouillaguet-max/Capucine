@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Point d'entrée de Capucine.
 
-    python main.py                        # mode vocal : [Entrée] pour parler
+    python main.py                        # écoute permanente : dites « Capucine »
     python main.py --text                 # boucle clavier, sans micro ni haut-parleur
     python main.py --text --llm mock      # sans aucun modèle de langage
+    python main.py --push-to-talk         # [Entrée] pour parler, sans mot d'éveil
     python main.py --wav-in essai.wav     # rejoue un fichier : un tour, sans micro
     python main.py --devices              # inventaire des périphériques audio
 """
@@ -43,8 +44,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="remplace stt.engine : faster-whisper, vosk ou scripted")
     parser.add_argument("--tts", metavar="MOTEUR",
                         help="remplace tts.engine : piper ou silent")
+    parser.add_argument("--wake", metavar="MOTEUR",
+                        help="remplace wake.engine : openwakeword ou vosk")
+    parser.add_argument("--vad", metavar="MOTEUR",
+                        help="remplace vad.engine : silero ou energie")
     parser.add_argument("--plugins", metavar="DOSSIER", action="append",
                         help="dossier de plugins supplémentaire (répétable)")
+
+    ecoute = parser.add_argument_group("écoute")
+    ecoute.add_argument("--push-to-talk", action="store_true",
+                        help="[Entrée] pour parler, au lieu du mot d'éveil")
+    ecoute.add_argument("--no-wake", action="store_true",
+                        help="écoute permanente sans mot d'éveil (VAD seul)")
+    ecoute.add_argument("--barge-in", choices=["voix", "eveil", "off"],
+                        help="ce qui autorise à couper la parole à Capucine")
 
     audio = parser.add_argument_group("audio")
     audio.add_argument("--devices", action="store_true",
@@ -71,6 +84,12 @@ def build_overrides(args: argparse.Namespace) -> dict:
         overrides.setdefault("stt", {})["engine"] = args.stt
     if args.tts:
         overrides.setdefault("tts", {})["engine"] = args.tts
+    if args.wake:
+        overrides.setdefault("wake", {})["engine"] = args.wake
+    if args.vad:
+        overrides.setdefault("vad", {})["engine"] = args.vad
+    if args.barge_in:
+        overrides.setdefault("barge_in", {})["mode"] = args.barge_in
     if args.plugins:
         overrides.setdefault("plugins", {})["paths"] = list(args.plugins)
     if args.log_level:
@@ -100,7 +119,12 @@ async def _run(args: argparse.Namespace) -> int:
     try:
         if mode_texte:
             return await run_text_mode(assistant, once=args.once)
-        return await run_voice_mode(assistant, once=bool(args.wav_in))
+        return await run_voice_mode(
+            assistant,
+            once=bool(args.wav_in),
+            push_to_talk=args.push_to_talk,
+            use_wake=not args.no_wake,
+        )
     finally:
         await assistant.aclose()
 

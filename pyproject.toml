@@ -28,8 +28,15 @@ audio = [
   "piper-tts>=1.7,<2",
 ]
 # Étape 3 — mot d'éveil et détection de fin de phrase.
+#
+# `silero-vad` n'est volontairement PAS listé ici : le paquet importe torch et
+# torchaudio dès son __init__, y compris sur le chemin ONNX, soit plusieurs
+# centaines de méga-octets sur un Raspberry Pi pour un modèle de moins d'un
+# méga-octet. Capucine charge le fichier silero_vad.onnx livré dans le paquet
+# et l'exécute avec onnxruntime. Installez-le donc sans ses dépendances :
+#     pip install --no-deps silero-vad
+# À défaut, le VAD par énergie prend le relais automatiquement.
 wake = [
-  "silero-vad>=6,<7",
   "openwakeword>=0.6,<1",
   "onnxruntime>=1.17",
 ]

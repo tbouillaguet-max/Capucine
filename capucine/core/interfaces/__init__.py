@@ -11,6 +11,7 @@ from ..audio import AudioBuffer, AudioChunk
 from .llm import LLMEngine, Message, ToolCall
 from .stt import STTEngine, Transcription
 from .tts import TTSEngine
+from .vad import VADEngine
 from .wake import WakeEvent, WakeWordEngine
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "STTEngine",
     "Transcription",
     "TTSEngine",
+    "VADEngine",
     "WakeWordEngine",
     "WakeEvent",
 ]

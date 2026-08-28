@@ -23,11 +23,20 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from .audio import AudioBuffer, AudioInput, AudioOutput, AudioUnavailable, record
+from .audio import (
+    AudioBuffer,
+    AudioChunk,
+    AudioInput,
+    AudioOutput,
+    AudioUnavailable,
+    record,
+)
 from .conversation import Conversation
+from .endpointer import Utterance
 from .interfaces.llm import ToolCall
 from .interfaces.stt import STTEngine, Transcription
 from .interfaces.tts import TTSEngine
+from .listener import ListenerEvent, ListenMode, VoiceListener
 from .logging import TurnTelemetry, get_logger
 from .plugin import set_announcer
 from .registry import PluginRegistry, SkillResult
@@ -83,6 +92,8 @@ class Pipeline:
         announce_new_skills: bool = True,
         max_utterance_s: float = 20.0,
         echo: bool = True,
+        follow_up_s: float = 8.0,
+        wake_beep: bool = True,
     ) -> None:
         self.registry = registry
         self.router = router
@@ -94,6 +105,8 @@ class Pipeline:
         self.announce_new_skills = announce_new_skills
         self.max_utterance_s = max_utterance_s
         self.echo = echo
+        self.follow_up_s = follow_up_s
+        self.wake_beep = wake_beep
 
         self._speak = speak
         self._on_state = on_state
@@ -104,6 +117,8 @@ class Pipeline:
         # Armé pour couper la parole en cours ; consulté par la synthèse entre
         # deux phrases et par la lecture entre deux tranches.
         self._barge_in = threading.Event()
+        self._listener: VoiceListener | None = None
+        self._events: asyncio.Queue[ListenerEvent] = asyncio.Queue()
 
     # -- état ---------------------------------------------------------------
     @property
@@ -183,22 +198,18 @@ class Pipeline:
         if self.audio_in is None:
             return AudioBuffer(b"", 16000)
         self._set_state(State.LISTEN)
-        try:
-            return await asyncio.to_thread(
-                record, self.audio_in, stop=stop, max_seconds=self.max_utterance_s
-            )
-        finally:
-            self._set_state(State.IDLE)
+        # Pas de retour à IDLE ici : l'étage suivant enchaîne. Un observateur
+        # n'a que faire d'un passage au repos qui dure une microseconde.
+        return await asyncio.to_thread(
+            record, self.audio_in, stop=stop, max_seconds=self.max_utterance_s
+        )
 
     async def transcribe(self, audio: AudioBuffer, telemetry: TurnTelemetry) -> Transcription:
         if self.stt is None or not audio:
             return Transcription("")
         self._set_state(State.TRANSCRIBE)
-        try:
-            with telemetry.stage("transcription_ms"):
-                return await asyncio.to_thread(self.stt.transcribe, audio)
-        finally:
-            self._set_state(State.IDLE)
+        with telemetry.stage("transcription_ms"):
+            return await asyncio.to_thread(self.stt.transcribe, audio)
 
     # -- parole -------------------------------------------------------------
     async def say(self, text: str) -> bool:
@@ -216,6 +227,7 @@ class Pipeline:
         """
         self._barge_in.clear()
         self._set_state(State.SPEAK)
+        self._surveiller_interruption(True)
         try:
             if not self.has_voice:
                 # Sans voix, on attend le texte complet : le découper n'aurait
@@ -238,6 +250,7 @@ class Pipeline:
                     break
             return not interrompu
         finally:
+            self._surveiller_interruption(False)
             self._set_state(State.IDLE)
 
     def _synthetiser_et_jouer(self, phrase: str) -> bool:
@@ -262,6 +275,22 @@ class Pipeline:
             print(f"Capucine › {phrase}")
             return True
         return True
+
+    def _surveiller_interruption(self, actif: bool) -> None:
+        """Ouvre (ou referme) la surveillance du micro pendant la parole.
+
+        Le micro reste ouvert en permanence : c'est ce qui rend le barge-in
+        possible. À la fin de la phrase on ne repasse en pause que si la
+        surveillance est encore active — si l'utilisateur a déjà coupé la
+        parole, la boucle a rouvert l'écoute et il ne faut pas la refermer.
+        """
+        listener = self._listener
+        if listener is None or self.audio_out is None:
+            return
+        if actif:
+            listener.set_mode(ListenMode.MONITOR)
+        elif listener.mode is ListenMode.MONITOR and listener.pending is None:
+            listener.set_mode(ListenMode.PAUSED)
 
     async def _dire_en_texte(self, texte: str) -> None:
         if self._speak is not None:
@@ -425,6 +454,7 @@ class Pipeline:
         transcription = await self.transcribe(audio, telemetry)
         if not transcription:
             logger.info("Rien à transcrire (%.2f s captées).", audio.duration_s)
+            self._set_state(State.IDLE)
             return TurnResult(utterance="", telemetry=telemetry)
 
         print(f"Vous  › {transcription.text}")
@@ -434,6 +464,142 @@ class Pipeline:
             result.telemetry.record(etage, valeur)
         result.telemetry.record("audio_s", round(audio.duration_s * 1000, 1))
         return result
+
+    # -- boucle « toujours à l'écoute » -------------------------------------
+    def on_listener_event(self, evenement: ListenerEvent) -> None:
+        """Passe un événement du thread d'écoute à la boucle asyncio.
+
+        Une exception, et elle est essentielle : le **barge-in coupe la parole
+        immédiatement, depuis le thread d'écoute**, avant même d'être mis en
+        file. La boucle de conversation, elle, est en train d'attendre la fin
+        de ``handle_and_speak`` — elle ne dépilerait l'événement qu'une fois la
+        réponse entièrement prononcée, c'est-à-dire trop tard pour
+        l'interrompre. Le drapeau et l'arrêt du haut-parleur sont des objets de
+        thread : on les actionne ici, tout de suite. La file ne sert plus qu'à
+        décider de la suite — rouvrir l'écoute.
+        """
+        if evenement.kind == "barge_in":
+            self._barge_in.set()
+            if self.audio_out is not None:
+                try:
+                    self.audio_out.stop()
+                except Exception:  # pragma: no cover - un arrêt raté ne casse rien
+                    logger.debug("Arrêt de la sortie audio en erreur.", exc_info=True)
+
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            logger.debug("Événement d'écoute ignoré (%s) : pas de boucle.", evenement.kind)
+            return
+        loop.call_soon_threadsafe(self._events.put_nowait, evenement)
+
+    async def run_conversation(
+        self,
+        listener: VoiceListener,
+        *,
+        use_wake: bool = True,
+        stop: asyncio.Event | None = None,
+    ) -> None:
+        """Boucle complète : éveil, énoncé, réponse, suivi.
+
+        C'est ici que la machine à états devient circulaire ::
+
+            IDLE ──« Capucine »──▶ WAKE ─▶ LISTEN ─▶ TRANSCRIBE ─▶ THINK
+                                                                     │
+            IDLE ◀── suivi expiré ──── SPEAK ◀───── ACT ◀────────────┘
+              ▲                          │
+              └──── barge-in ────▶ LISTEN
+
+        Le mode suivi garde l'écoute ouverte quelques secondes après la
+        réponse : on enchaîne sans redire « Capucine ».
+        """
+        self._listener = listener
+        mode_repos = ListenMode.WAKE if use_wake else ListenMode.UTTERANCE
+        listener.set_mode(mode_repos)
+        self._set_state(State.IDLE)
+
+        while stop is None or not stop.is_set():
+            evenement = await self._events.get()
+
+            if evenement.kind == "stopped":
+                logger.info("L'écoute s'est arrêtée.")
+                return
+
+            if evenement.kind == "wake" and evenement.wake is not None:
+                self._set_state(State.WAKE)
+                logger.info("Éveil : %s (%.2f)", evenement.wake.word, evenement.wake.score)
+                await self._bip()
+                listener.endpointer.max_wait_s = self.max_utterance_s
+                listener.set_mode(ListenMode.UTTERANCE)
+                self._set_state(State.LISTEN)
+                continue
+
+            if evenement.kind == "barge_in":
+                logger.info("On me coupe la parole : j'écoute.")
+                self.cancel_turn()
+                listener.endpointer.max_wait_s = self.max_utterance_s
+                listener.set_mode(ListenMode.UTTERANCE)
+                self._set_state(State.LISTEN)
+                continue
+
+            if evenement.kind != "utterance" or evenement.utterance is None:
+                continue
+
+            enonce = evenement.utterance
+            if not enonce:
+                # Fini, mais rien d'exploitable : silence, ou bruit trop bref.
+                logger.debug("Énoncé sans contenu (%s).", enonce.reason.value)
+                listener.set_mode(mode_repos)
+                self._set_state(State.IDLE)
+                continue
+
+            await self._tour_depuis_enonce(listener, enonce, mode_repos)
+
+    async def _tour_depuis_enonce(
+        self, listener: VoiceListener, enonce: Utterance, mode_repos: ListenMode
+    ) -> None:
+        """Transcrit, répond, puis ouvre la fenêtre de suivi."""
+        listener.set_mode(ListenMode.PAUSED)
+        telemetrie = TurnTelemetry(name="tour vocal")
+        transcription = await self.transcribe(enonce.audio, telemetrie)
+
+        if not transcription:
+            logger.info("Rien de transcrit (%.2f s captées).", enonce.audio.duration_s)
+            listener.set_mode(mode_repos)
+            self._set_state(State.IDLE)
+            return
+
+        print(f"Vous  › {transcription.text}")
+        resultat = await self.handle_and_speak(transcription.text)
+        for etage, valeur in telemetrie.stages.items():
+            resultat.telemetry.record(etage, valeur)
+        resultat.telemetry.record("audio_s", round(enonce.audio.duration_s * 1000, 1))
+
+        if listener.mode is ListenMode.UTTERANCE or listener.pending is ListenMode.UTTERANCE:
+            # Le barge-in a déjà rouvert l'écoute : on ne la referme pas.
+            return
+
+        if self.follow_up_s > 0:
+            # Mode suivi : quelques secondes pendant lesquelles on enchaîne
+            # sans redire « Capucine ».
+            listener.endpointer.max_wait_s = self.follow_up_s
+            listener.set_mode(ListenMode.UTTERANCE)
+            self._set_state(State.LISTEN)
+        else:
+            listener.set_mode(mode_repos)
+            self._set_state(State.IDLE)
+
+    async def _bip(self) -> None:
+        """Deux notes brèves pour dire « je t'écoute ».
+
+        Plus rapide et moins bavard qu'un « oui ? » synthétisé : le signal
+        doit arriver avant que l'utilisateur commence sa phrase, pas après.
+        """
+        if not self.wake_beep or self.audio_out is None:
+            return
+        try:
+            await asyncio.to_thread(self.audio_out.play, carillon())
+        except Exception:  # pragma: no cover - un bip raté n'empêche rien
+            logger.debug("Bip d'éveil impossible.", exc_info=True)
 
     # -- barge-in -----------------------------------------------------------
     def start_turn(self, utterance: str) -> asyncio.Task[TurnResult]:
@@ -480,6 +646,26 @@ class Pipeline:
         self.detach()
 
 
+def carillon(sample_rate: int = 16000) -> AudioChunk:
+    """Le petit signal d'éveil, synthétisé à la volée — pas de fichier à livrer."""
+    import math
+    import struct
+
+    echantillons: list[int] = []
+    for frequence, duree in ((880.0, 0.07), (1320.0, 0.09)):
+        n = int(sample_rate * duree)
+        for i in range(n):
+            # Enveloppe en cloche : sans elle, les bords claquent.
+            enveloppe = math.sin(math.pi * i / n) ** 2
+            echantillons.append(
+                int(6000 * enveloppe * math.sin(2 * math.pi * frequence * i / sample_rate))
+            )
+    return AudioChunk(
+        pcm=struct.pack(f"<{len(echantillons)}h", *echantillons),
+        sample_rate=sample_rate,
+    )
+
+
 async def _phrases_async(fragments: Iterable[str]) -> AsyncIterator[str]:
     """Rend les phrases une à une, sans bloquer la boucle.
 
@@ -498,3 +684,4 @@ async def _phrases_async(fragments: Iterable[str]) -> AsyncIterator[str]:
         if phrase is sentinelle:
             return
         yield phrase
+

@@ -26,6 +26,8 @@ from ..errors import ConfigError, EngineUnavailable
 from ..interfaces.llm import LLMEngine
 from ..interfaces.stt import STTEngine
 from ..interfaces.tts import TTSEngine
+from ..interfaces.vad import VADEngine
+from ..interfaces.wake import WakeWordEngine
 from ..logging import get_logger
 
 logger = get_logger("engines")
@@ -49,9 +51,18 @@ TTS_ENGINES: dict[str, tuple[str, str]] = {
     "silent": ("capucine.core.engines.tts.silent", "SilentTTS"),
 }
 
-# L'étage d'éveil arrive à l'étape 3 ; la table existe pour que son
-# branchement ne touche à rien d'autre.
-WAKE_ENGINES: dict[str, tuple[str, str]] = {}
+VAD_ENGINES: dict[str, tuple[str, str]] = {
+    "silero": ("capucine.core.engines.vad.silero", "SileroVAD"),
+    "energie": ("capucine.core.engines.vad.energy", "EnergyVAD"),
+    "energy": ("capucine.core.engines.vad.energy", "EnergyVAD"),
+    "scripted": ("capucine.core.engines.vad.scripted", "ScriptedVAD"),
+}
+
+WAKE_ENGINES: dict[str, tuple[str, str]] = {
+    "openwakeword": ("capucine.core.engines.wake.openwakeword", "OpenWakeWordEngine"),
+    "vosk": ("capucine.core.engines.wake.vosk", "VoskWakeWord"),
+    "scripted": ("capucine.core.engines.wake.scripted", "ScriptedWakeWord"),
+}
 
 
 def _instantiate(table: Mapping[str, tuple[str, str]], kind: str, name: str, options: Mapping[str, Any]) -> Any:
@@ -196,7 +207,100 @@ def build_audio_output(
 
 
 __all__ = [
-    "LLM_ENGINES", "STT_ENGINES", "TTS_ENGINES", "WAKE_ENGINES",
-    "build_llm", "build_stt", "build_tts", "build_audio_input", "build_audio_output",
-    "MemoryAudioOutput",
+    "LLM_ENGINES", "STT_ENGINES", "TTS_ENGINES", "VAD_ENGINES", "WAKE_ENGINES",
+    "build_llm", "build_stt", "build_tts", "build_vad", "build_wake",
+    "build_audio_input", "build_audio_output", "MemoryAudioOutput",
 ]
+
+
+def build_vad(config: Any) -> VADEngine:
+    """Construit le détecteur d'activité vocale décrit par ``[vad]``.
+
+    Repli sur le VAD par énergie si Silero manque : sans détection de fin de
+    phrase, la boucle vocale ne tourne pas du tout, alors qu'un VAD moins fin
+    reste parfaitement utilisable au calme.
+    """
+    section = dict(config.section("vad"))
+    name = str(section.pop("engine", "silero"))
+    for cle in ("threshold", "silence_ms", "min_speech_ms", "pre_roll_ms",
+                "max_utterance_s", "max_wait_s", "min_total_speech_ms"):
+        section.pop(cle, None)
+    dossier = config.resolve_path("vad.models_dir")
+    if dossier is not None:
+        section["models_dir"] = str(dossier)
+    section.setdefault("sample_rate", int(config.get("audio.sample_rate", 16000)))
+
+    try:
+        engine = _instantiate(VAD_ENGINES, "VAD", name, section)
+        if engine.available():
+            logger.info("Moteur VAD : %s", engine.describe())
+            return engine
+        logger.warning("Moteur VAD « %s » indisponible.", engine.describe())
+    except (ConfigError, EngineUnavailable) as exc:
+        logger.warning("%s", exc)
+
+    logger.warning(
+        "Repli sur le VAD par énergie : moins fin dans le bruit, mais toujours "
+        "opérationnel. Pour Silero : pip install --no-deps silero-vad onnxruntime"
+    )
+    return _instantiate(
+        VAD_ENGINES, "VAD", "energie",
+        {"sample_rate": section.get("sample_rate", 16000),
+         "frame_size": int(int(config.get("audio.sample_rate", 16000)) * 0.03)},
+    )
+
+
+def build_wake(config: Any) -> WakeWordEngine | None:
+    """Construit le détecteur de mot d'éveil décrit par ``[wake]``.
+
+    Chaîne de replis voulue par le projet : le modèle openWakeWord
+    « capucine » doit être entraîné, ce qui prend du temps ; tant qu'il
+    n'existe pas, Vosk à grammaire restreinte prend le relais. Si aucun des
+    deux n'est disponible, on rend ``None`` et Capucine écoute en permanence,
+    sans mot d'éveil — dégradé, mais utilisable.
+    """
+    section = dict(config.section("wake"))
+    name = str(section.pop("engine", "openwakeword"))
+    chemin_vosk = section.pop("vosk_model_path", None)
+    dossier = config.resolve_path("wake.models_dir")
+    if dossier is not None:
+        section["models_dir"] = str(dossier)
+
+    def _essayer(nom: str, options: dict[str, Any]) -> WakeWordEngine | None:
+        try:
+            engine = _instantiate(WAKE_ENGINES, "éveil", nom, options)
+        except (ConfigError, EngineUnavailable) as exc:
+            logger.warning("%s", exc)
+            return None
+        if engine.available():
+            logger.info("Mot d'éveil : %s", engine.describe())
+            return engine
+        logger.warning("Moteur d'éveil « %s » indisponible.", engine.describe())
+        return None
+
+    engine = _essayer(name, section)
+    if engine is not None:
+        return engine
+
+    if name == "openwakeword":
+        options = dict(section)
+        options.pop("models_dir", None)
+        options.pop("inference_framework", None)
+        options.pop("threshold", None)
+        if chemin_vosk:
+            options["model_path"] = str(config.resolve_path("wake.vosk_model_path") or chemin_vosk)
+        logger.warning(
+            "Le modèle openWakeWord « %s » n'est pas entraîné : repli sur Vosk. "
+            "Pour l'entraîner : python tools/entrainer_capucine.py --preparer",
+            section.get("word", "capucine"),
+        )
+        engine = _essayer("vosk", options)
+        if engine is not None:
+            return engine
+
+    logger.warning(
+        "Aucun détecteur de mot d'éveil disponible : Capucine écoutera en "
+        "permanence. Entraînez le modèle, installez Vosk, ou utilisez "
+        "--push-to-talk."
+    )
+    return None

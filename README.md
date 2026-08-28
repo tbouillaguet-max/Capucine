@@ -7,10 +7,9 @@ La contrainte qui prime sur toutes les autres décisions d'architecture :
 **ajouter une capacité, c'est déposer un fichier Python dans `plugins/`.** Sans
 redémarrer l'assistante, et sans jamais toucher au cœur.
 
-> **État : étape 2 sur 5 terminée.** La chaîne vocale complète fonctionne —
-> micro, transcription, choix d'outil, plugin, synthèse, haut-parleur — et se
-> déclenche au clavier. Le mot d'éveil « Capucine » et le barge-in arrivent à
-> l'étape 3.
+> **État : étape 3 sur 5 terminée.** Capucine écoute en permanence, se réveille
+> à son nom, attend que vous ayez fini votre phrase, et se tait si vous lui
+> coupez la parole. Le rechargement à chaud des plugins arrive à l'étape 4.
 
 ---
 
@@ -65,7 +64,7 @@ pip install -e ".[llm-llamacpp]"
 ```bash
 pip install -e ".[audio]"
 python -m capucine.core.downloads tout        # voix Piper + modèle Whisper
-python main.py                                # [Entrée] pour parler
+python main.py --push-to-talk                 # [Entrée] pour parler
 ```
 
 Sous Linux, `sounddevice` réclame PortAudio : `sudo apt install libportaudio2`.
@@ -79,15 +78,40 @@ python -m capucine.core.downloads vosk
 python main.py --profile pi --stt vosk
 ```
 
+### Ajouter l'écoute permanente
+
+```bash
+pip install -e ".[wake]"
+pip install --no-deps silero-vad    # voir plus bas : --no-deps n'est pas une coquille
+python main.py                      # dites « Capucine »
+```
+
 Rien n'est téléchargé automatiquement au démarrage : un assistant censé
 fonctionner le Wi-Fi coupé ne sort pas sur le réseau sans qu'on le lui demande.
+
+**Le mot d'éveil demande un modèle qui n'existe pas encore.** openWakeWord ne
+fournit aucun modèle « capucine » pré-entraîné ; il faut l'entraîner, ce que
+pilote `tools/entrainer_capucine.py`. En attendant, Capucine bascule
+automatiquement sur le repli Vosk à grammaire restreinte :
+
+```bash
+pip install -e ".[vosk]"
+python -m capucine.core.downloads vosk
+python main.py                      # le repli s'active tout seul
+```
+
+Ce n'est pas une panne, c'est un état normal du projet — et il est
+parfaitement utilisable.
 
 ---
 
 ## Utilisation
 
 ```bash
-python main.py                              # mode vocal : [Entrée] pour parler
+python main.py                              # écoute permanente : dites « Capucine »
+python main.py --push-to-talk               # [Entrée] pour parler, sans mot d'éveil
+python main.py --no-wake                    # écoute tout, sans mot d'éveil
+python main.py --barge-in eveil             # ne se tait que si l'on redit son nom
 python main.py --text                       # boucle clavier
 python main.py --text --llm mock            # sans modèle de langage
 python main.py --text --once "12 * 8"       # une phrase, puis on quitte
@@ -172,7 +196,11 @@ Les quatre fichiers de `plugins/` sont de la documentation vivante : lisez-les.
 ## Architecture
 
 ```
-IDLE → WAKE → LISTEN → TRANSCRIBE → THINK → ACT → SPEAK → IDLE
+IDLE ──« Capucine »──▶ WAKE ─▶ LISTEN ─▶ TRANSCRIBE ─▶ THINK
+                                                         │
+IDLE ◀── suivi expiré ──── SPEAK ◀───── ACT ◀────────────┘
+  ▲                          │
+  └──── barge-in ────▶ LISTEN
 ```
 
 Chaque étage est derrière une interface abstraite (`WakeWordEngine`,
@@ -185,6 +213,8 @@ capucine/
 ├── app.py                  assemblage config → registre → routeur → pipeline
 └── core/
     ├── pipeline.py         machine à états (asyncio)
+    ├── listener.py         le fil qui tient le micro, du début à la fin
+    ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
     ├── audio.py            un seul point d'entrée/sortie, sans dépendance
     ├── registry.py         découverte, chargement, isolation des pannes
     ├── router.py           choix de l'outil, trois étages
@@ -198,7 +228,10 @@ capucine/
     └── engines/            implémentations, importées paresseusement
         ├── llm/            mock, ollama, llamacpp
         ├── stt/            faster-whisper, vosk, scripted
-        └── tts/            piper, silent
+        ├── tts/            piper, silent
+        ├── vad/            silero (onnxruntime), énergie, scripted
+        └── wake/           openwakeword, vosk, scripted
+tools/entrainer_capucine.py entraînement du modèle de mot d'éveil
 plugins/                    ← LE dossier
 config/                     default.toml, pc.toml, pi.toml, persona.txt
 ```
@@ -245,6 +278,41 @@ niveau sonore, on écarte une courte liste de formules connues, et on désactive
 `condition_on_previous_text`, qui fait boucler le modèle sur des énoncés
 courts.
 
+### L'écoute permanente
+
+**Un seul thread tient le micro**, ouvert du début à la fin de la session.
+C'est ce qui rend le barge-in possible : le micro n'est jamais fermé, même
+pendant que Capucine parle. Selon le mode courant, chaque trame part vers le
+détecteur de mot d'éveil, vers le découpeur d'énoncé, ou vers la surveillance
+d'interruption. Le thread ne décide de rien : il émet des événements que la
+boucle asyncio consomme.
+
+**Silero VAD tourne sous onnxruntime, sans torch.** Le paquet `silero-vad`
+importe `torch` et `torchaudio` dès son `__init__`, y compris sur le chemin
+ONNX — plusieurs centaines de méga-octets sur un Pi pour un modèle de moins
+d'un méga-octet. Or le fichier `silero_vad.onnx` est livré *dans* le paquet.
+Capucine le localise sans importer le paquet et l'exécute avec onnxruntime :
+mêmes poids, sans la chaîne torch. D'où le `pip install --no-deps silero-vad`.
+Si rien n'est disponible, un VAD par énergie à plancher de bruit adaptatif
+prend le relais — moins fin dans le bruit, mais opérationnel partout.
+
+**Terminer une phrase sans couper l'utilisateur** demande trois précautions :
+un silence exigé plus long qu'on ne le croit (700 ms), un **pré-roll** qui
+conserve l'audio *précédant* la détection — sans quoi la première syllabe est
+perdue — et une durée minimale de parole, pour qu'une porte qui claque ne
+devienne pas une commande.
+
+**Le barge-in doit composer avec l'écho.** Sans annulation acoustique, le
+micro entend le haut-parleur et Capucine se coupe elle-même. Trois garde-fous
+réglables : un seuil plus haut que pour l'écoute normale (0,85), un délai de
+garde au début de la réponse, et une durée de parole soutenue exigée. Au
+casque, on peut tout abaisser. Sur haut-parleur ouvert — le cas d'un Pi —
+`barge_in.mode = "eveil"` (n'interrompre que si l'on redit « Capucine ») reste
+le plus sûr ; c'est le défaut du profil Pi.
+
+**Le mode suivi** garde l'écoute ouverte quelques secondes après la réponse :
+on enchaîne sans redire le nom. `assistant.follow_up_seconds = 0` le désactive.
+
 ### Configuration
 
 Quatre couches, de la plus faible à la plus forte :
@@ -266,8 +334,9 @@ CAPUCINE_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
 python -m pytest
 ```
 
-136 tests, aucun modèle téléchargé, aucun périphérique audio requis. La chaîne
-vocale est éprouvée avec des doublures en mémoire ; les adaptateurs Piper et
+202 tests, aucun modèle téléchargé, aucun périphérique audio requis. La boucle
+complète — éveil, énoncé, réponse, suivi, barge-in — est éprouvée avec un micro
+en mémoire, un mot d'éveil scripté et un VAD scripté. Les adaptateurs Piper et
 faster-whisper sont en plus vérifiés contre les **signatures réelles** des
 bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suite.
 
@@ -279,9 +348,31 @@ bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suit
 |---|---|---|
 | 1 | Squelette, config, interfaces, registre de plugins, routeur, mode texte | **fait** |
 | 2 | STT (`faster-whisper`, Vosk) + TTS (`piper`), pipeline vocal au clavier | **fait** |
-| 3 | Mot d'éveil « Capucine » (`openWakeWord`), VAD (`silero`), barge-in | à venir |
+| 3 | Mot d'éveil « Capucine » (`openWakeWord` + repli Vosk), VAD (`silero`), barge-in, mode suivi | **fait** |
 | 4 | Rechargement à chaud (`watchdog`), plugins d'exemple (heure, minuteur, notes, système) | à venir |
 | 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | à venir |
+
+### Entraîner le mot d'éveil
+
+```bash
+python tools/entrainer_capucine.py preparer      # config + état des prérequis
+python tools/entrainer_capucine.py echantillons  # positifs français, voix Piper
+python tools/entrainer_capucine.py entrainer     # pipeline officiel openWakeWord
+python tools/entrainer_capucine.py installer     # copie le modèle dans models/wake/
+python tools/entrainer_capucine.py essayer a.wav # vérifie sur un enregistrement
+```
+
+`preparer` liste ce qui manque et la commande pour l'obtenir : le générateur
+d'échantillons Piper, des réponses impulsionnelles, des bruits de fond, torch.
+Ces deux derniers ne sont pas facultatifs — sans eux, le modèle apprend une
+pièce et un micro, pas un mot.
+
+Une mise en garde honnête : le pipeline officiel d'openWakeWord repose sur une
+génération de données synthétiques pensée pour l'anglais. Pour un mot français,
+la qualité des positifs est le facteur limitant, d'où la sous-commande
+`echantillons`, qui les produit avec les **voix françaises de Piper** en variant
+débit, couleur et niveau. Attendez-vous à ce que le repli Vosk reste le chemin
+principal un certain temps.
 
 ### Limite assumée
 

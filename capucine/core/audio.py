@@ -225,10 +225,22 @@ class MemoryAudioInput(AudioInput):
 
     name = "memoire"
 
-    def __init__(self, frames: list[bytes], sample_rate: int = 16000, frame_size: int = 480) -> None:
+    def __init__(
+        self,
+        frames: list[bytes],
+        sample_rate: int = 16000,
+        frame_size: int = 480,
+        repeat: bool = False,
+        frame_delay_s: float = 0.0,
+    ) -> None:
         self._frames = list(frames)
         self._sample_rate = sample_rate
         self._frame_size = frame_size
+        # `repeat` fait tourner la boucle jusqu'à `stop()` : c'est ce qu'il
+        # faut pour éprouver une écoute permanente, où le micro ne se tarit
+        # jamais. `frame_delay_s` rend la main au reste du programme.
+        self.repeat = repeat
+        self.frame_delay_s = frame_delay_s
         self._arrete = threading.Event()
 
     @classmethod
@@ -252,10 +264,15 @@ class MemoryAudioInput(AudioInput):
         self._arrete.set()
 
     def frames(self) -> Iterator[bytes]:
-        for frame in self._frames:
-            if self._arrete.is_set():
+        while True:
+            for frame in self._frames:
+                if self._arrete.is_set():
+                    return
+                yield frame
+                if self.frame_delay_s:
+                    self._arrete.wait(self.frame_delay_s)
+            if not self.repeat:
                 return
-            yield frame
 
 
 class WavFileInput(MemoryAudioInput):
@@ -267,7 +284,7 @@ class WavFileInput(MemoryAudioInput):
 
     name = "wav"
 
-    def __init__(self, path: str | Path, frame_ms: int = 30) -> None:
+    def __init__(self, path: str | Path, frame_ms: int = 30) -> None:  # noqa: D107
         with wave.open(str(path), "rb") as handle:
             if handle.getsampwidth() != SAMPLE_WIDTH or handle.getnchannels() != CHANNELS:
                 raise AudioUnavailable(
@@ -439,6 +456,39 @@ class NullAudioOutput(AudioOutput):
 
     def play(self, chunk: AudioChunk, cancel: threading.Event | None = None) -> bool:
         return not (cancel is not None and cancel.is_set())
+
+
+# --- regroupement de trames ------------------------------------------------
+
+class Rechunker:
+    """Regroupe des trames de taille quelconque en trames de taille fixe.
+
+    Chaque étage réclame sa propre découpe : Silero exige exactement 512
+    échantillons, openWakeWord travaille par 1280, et le micro délivre ce que
+    demande la configuration. Plutôt que d'imposer une taille commune — qui
+    serait mauvaise pour tout le monde — chaque consommateur a son rechunker.
+    """
+
+    __slots__ = ("frame_bytes", "_tampon")
+
+    def __init__(self, frame_size: int) -> None:
+        if frame_size <= 0:
+            raise ValueError("La taille de trame doit être strictement positive.")
+        self.frame_bytes = frame_size * SAMPLE_WIDTH
+        self._tampon = bytearray()
+
+    def push(self, pcm: bytes) -> Iterator[bytes]:
+        self._tampon.extend(pcm)
+        while len(self._tampon) >= self.frame_bytes:
+            yield bytes(self._tampon[: self.frame_bytes])
+            del self._tampon[: self.frame_bytes]
+
+    def reset(self) -> None:
+        self._tampon.clear()
+
+    @property
+    def en_attente(self) -> int:
+        return len(self._tampon)
 
 
 # --- utilitaires -----------------------------------------------------------

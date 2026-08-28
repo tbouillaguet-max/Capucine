@@ -26,3 +26,15 @@ timeout = 15.0
 
 [audio]
 frame_ms = 30
+
+[wake]
+# Sur Pi, Vosk d'emblée : il consomme peu et tourne en continu sans peine.
+engine = "vosk"
+
+[vad]
+engine = "silero"           # onnxruntime seulement, torch n'est jamais requis
+
+[barge_in]
+# Un Pi est souvent branché sur un haut-parleur ouvert : n'interrompre que sur
+# le mot d'éveil évite qu'il se coupe lui-même.
+mode = "eveil"

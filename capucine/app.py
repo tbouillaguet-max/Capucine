@@ -7,6 +7,7 @@ cœur n'en voit qu'un.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -14,16 +15,22 @@ from typing import Any
 from .core.audio import AudioInput, AudioOutput
 from .core.config import Config
 from .core.conversation import Conversation, load_persona
+from .core.endpointer import BargeInDetector, Endpointer
 from .core.engines.factory import (
     build_audio_input,
     build_audio_output,
     build_llm,
     build_stt,
     build_tts,
+    build_vad,
+    build_wake,
 )
 from .core.interfaces.llm import LLMEngine
 from .core.interfaces.stt import STTEngine
 from .core.interfaces.tts import TTSEngine
+from .core.interfaces.vad import VADEngine
+from .core.interfaces.wake import WakeWordEngine
+from .core.listener import BargeInMode, ListenMode, VoiceListener
 from .core.logging import get_logger
 from .core.pipeline import Pipeline
 from .core.registry import PluginRegistry
@@ -44,9 +51,17 @@ class Assistant:
     tts: TTSEngine | None = None
     audio_in: AudioInput | None = None
     audio_out: AudioOutput | None = None
+    vad: VADEngine | None = None
+    wake: WakeWordEngine | None = None
+    listener: VoiceListener | None = None
 
     async def aclose(self) -> None:
+        if self.listener is not None:
+            self.listener.stop()
         await self.pipeline.aclose()
+        for moteur in (self.vad, self.wake):
+            if moteur is not None:
+                moteur.close()
         self.llm.close()
 
 
@@ -109,6 +124,8 @@ def build_assistant(
         audio_out=audio_out,
         announce_new_skills=bool(config.get("assistant.announce_new_skills", True)),
         max_utterance_s=float(config.get("vad.max_utterance_s", 20.0)),
+        follow_up_s=float(config.get("assistant.follow_up_seconds", 8.0)),
+        wake_beep=bool(config.get("audio.wake_beep", True)),
     )
 
     registry.load_all()
@@ -123,6 +140,58 @@ def build_assistant(
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
     )
+
+
+def build_listener(
+    assistant: Assistant,
+    *,
+    vad: VADEngine | None = None,
+    barge_in_vad: VADEngine | None = None,
+    wake: WakeWordEngine | None = None,
+    use_wake: bool = True,
+) -> VoiceListener:
+    """Assemble le fil qui tient le micro : VAD, découpeur, éveil, barge-in."""
+    config = assistant.config
+    assistant.vad = vad if vad is not None else build_vad(config)
+    if use_wake:
+        assistant.wake = wake if wake is not None else build_wake(config)
+    else:
+        assistant.wake = wake
+
+    endpointer = Endpointer(
+        assistant.vad,
+        threshold=float(config.get("vad.threshold", 0.5)),
+        min_speech_ms=float(config.get("vad.min_speech_ms", 200)),
+        silence_ms=float(config.get("vad.silence_ms", 700)),
+        pre_roll_ms=float(config.get("vad.pre_roll_ms", 300)),
+        max_utterance_s=float(config.get("vad.max_utterance_s", 20.0)),
+        max_wait_s=float(config.get("vad.max_wait_s", 8.0)),
+        min_total_speech_ms=float(config.get("vad.min_total_speech_ms", 300)),
+    )
+    # Le barge-in a son propre détecteur : même modèle, seuils différents.
+    # Surtout, sa **propre instance** de VAD — Silero porte un état récurrent
+    # d'une trame à l'autre, et le partager mélangerait l'écoute de
+    # l'utilisateur avec la surveillance pendant la réponse.
+    barge_in = BargeInDetector(
+        barge_in_vad if barge_in_vad is not None else build_vad(config),
+        threshold=float(config.get("barge_in.threshold", 0.85)),
+        min_speech_ms=float(config.get("barge_in.min_speech_ms", 300)),
+        guard_ms=float(config.get("barge_in.guard_ms", 400)),
+    )
+
+    if assistant.audio_in is None:
+        raise RuntimeError("L'écoute continue réclame une entrée audio.")
+
+    assistant.listener = VoiceListener(
+        assistant.audio_in,
+        endpointer=endpointer,
+        on_event=assistant.pipeline.on_listener_event,
+        wake=assistant.wake,
+        barge_in=barge_in,
+        barge_in_mode=BargeInMode(str(config.get("barge_in.mode", "voix"))),
+        start_mode=ListenMode.PAUSED,
+    )
+    return assistant.listener
 
 
 # --- commandes communes aux deux modes -------------------------------------
@@ -254,66 +323,138 @@ class _LecteurClavier:
         return await self.lignes.get()
 
 
-async def run_voice_mode(assistant: Assistant, once: bool = False) -> int:
-    """Chaîne vocale complète, déclenchée au clavier.
+async def run_voice_mode(
+    assistant: Assistant,
+    *,
+    once: bool = False,
+    push_to_talk: bool = False,
+    use_wake: bool = True,
+) -> int:
+    """Trois façons de parler à Capucine, du plus manuel au plus autonome.
 
-    Étape 2 : « appuie pour parler ». L'étape 3 remplacera ce déclencheur par
-    le mot d'éveil et terminera l'énoncé au VAD — le reste ne bougera pas.
+    * ``once`` : un seul tour, depuis un fichier WAV — démonstration et
+      intégration continue, sans micro.
+    * ``push_to_talk`` : [Entrée] pour parler, [Entrée] pour terminer. Utile
+      pour mettre au point sans dépendre du mot d'éveil.
+    * défaut : écoute permanente, réveil sur « Capucine », fin d'énoncé au
+      VAD, mode suivi, barge-in.
     """
     pipeline = assistant.pipeline
     pipeline.attach()
     try:
-        print(f"Capucine — mode vocal ({assistant.llm.describe()}, "
-              f"{assistant.stt.describe() if assistant.stt else 'sans oreille'}, "
-              f"{assistant.tts.describe() if assistant.tts else 'sans voix'}).")
-        if not pipeline.has_voice:
-            print("Aucune voix disponible : les réponses seront affichées.")
+        _annoncer_moteurs(assistant)
         _annoncer_demarrage(assistant)
-
         print("\nChargement des modèles…")
         await pipeline.warmup()
 
         if once:
-            # Rejeu d'un fichier : un tour, puis on sort. C'est le mode
-            # d'intégration continue et de démonstration sans micro.
             resultat = await pipeline.voice_turn()
             return 0 if resultat.utterance else 1
-
-        clavier = _LecteurClavier(asyncio.get_running_loop())
-        clavier.start()
-        print("[Entrée] pour parler, [Entrée] à nouveau pour terminer. /aide, /quitter.")
-
-        while True:
-            print("\n[Entrée] pour parler › ", end="", flush=True)
-            ligne = await clavier.prochaine()
-            if ligne is None:
-                print()
-                return 0
-            ligne = ligne.strip()
-            if ligne.startswith("/"):
-                if _handle_command(assistant, ligne):
-                    return 0
-                continue
-            if ligne:
-                # Une phrase tapée est traitée comme si elle avait été dite :
-                # pratique pour éprouver la synthèse sans parler à sa machine.
-                await pipeline.handle_and_speak(ligne)
-                continue
-
-            print("… j'écoute, [Entrée] pour terminer.")
-            stop = threading.Event()
-            tour = asyncio.ensure_future(pipeline.voice_turn(stop))
-            fin = asyncio.ensure_future(clavier.prochaine())
-            termine, _ = await asyncio.wait({tour, fin}, return_when=asyncio.FIRST_COMPLETED)
-            if fin in termine:
-                stop.set()
-                await tour
-            else:
-                # La durée maximale a été atteinte : on rend la frappe suivante
-                # au tour d'après plutôt que de la perdre.
-                fin.cancel()
+        if push_to_talk:
+            return await _boucle_appui_pour_parler(assistant)
+        return await _boucle_continue(assistant, use_wake=use_wake)
     finally:
         pipeline.detach()
+
+
+def _annoncer_moteurs(assistant: Assistant) -> None:
+    print(
+        f"Capucine — mode vocal ({assistant.llm.describe()}, "
+        f"{assistant.stt.describe() if assistant.stt else 'sans oreille'}, "
+        f"{assistant.tts.describe() if assistant.tts else 'sans voix'})."
+    )
+    if not assistant.pipeline.has_voice:
+        print("Aucune voix disponible : les réponses seront affichées.")
+
+
+async def _boucle_continue(assistant: Assistant, *, use_wake: bool = True) -> int:
+    """Écoute permanente : le micro reste ouvert du début à la fin."""
+    pipeline = assistant.pipeline
+    listener = build_listener(assistant, use_wake=use_wake)
+    mot = assistant.config.get("wake.word", "capucine")
+
+    if listener.wake is None:
+        use_wake = False
+        print("Sans mot d'éveil : je réagis à tout ce que j'entends.")
+    else:
+        print(f"Dites « {mot} » pour me réveiller.")
+    if float(assistant.config.get("assistant.follow_up_seconds", 8.0)) > 0:
+        print("Après ma réponse, enchaînez sans redire mon nom.")
+    print("Tapez une phrase pour me la dire au clavier. /aide, /quitter.\n")
+
+    listener.start()
+    arret = asyncio.Event()
+    conversation = asyncio.ensure_future(
+        pipeline.run_conversation(listener, use_wake=use_wake, stop=arret)
+    )
+    clavier = asyncio.ensure_future(_boucle_clavier(assistant, arret))
+    try:
+        await asyncio.wait({conversation, clavier}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        arret.set()
+        listener.stop()
+        for tache in (conversation, clavier):
+            tache.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await tache
+    return 0
+
+
+async def _boucle_clavier(assistant: Assistant, arret: asyncio.Event) -> None:
+    """Les commandes restent accessibles pendant que Capucine écoute."""
+    clavier = _LecteurClavier(asyncio.get_running_loop())
+    clavier.start()
+    while not arret.is_set():
+        ligne = await clavier.prochaine()
+        if ligne is None:
+            arret.set()
+            return
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        if ligne.startswith("/"):
+            if _handle_command(assistant, ligne):
+                arret.set()
+                return
+            continue
+        # Une phrase tapée est traitée comme si elle avait été dite.
+        await assistant.pipeline.handle_and_speak(ligne)
+
+
+async def _boucle_appui_pour_parler(assistant: Assistant) -> int:
+    """Le déclencheur de l'étape 2, conservé : il ne dépend d'aucun modèle."""
+    pipeline = assistant.pipeline
+    clavier = _LecteurClavier(asyncio.get_running_loop())
+    clavier.start()
+    print("[Entrée] pour parler, [Entrée] à nouveau pour terminer. /aide, /quitter.")
+
+    while True:
+        print("\n[Entrée] pour parler › ", end="", flush=True)
+        ligne = await clavier.prochaine()
+        if ligne is None:
+            print()
+            return 0
+        ligne = ligne.strip()
+        if ligne.startswith("/"):
+            if _handle_command(assistant, ligne):
+                return 0
+            continue
+        if ligne:
+            await pipeline.handle_and_speak(ligne)
+            continue
+
+        print("… j'écoute, [Entrée] pour terminer.")
+        stop = threading.Event()
+        tour = asyncio.ensure_future(pipeline.voice_turn(stop))
+        fin = asyncio.ensure_future(clavier.prochaine())
+        termine, _ = await asyncio.wait({tour, fin}, return_when=asyncio.FIRST_COMPLETED)
+        if fin in termine:
+            stop.set()
+            await tour
+        else:
+            # La durée maximale a été atteinte : on rend la frappe suivante
+            # au tour d'après plutôt que de la perdre.
+            fin.cancel()
 
 
 def describe_startup(assistant: Assistant) -> dict[str, Any]:
@@ -322,6 +463,8 @@ def describe_startup(assistant: Assistant) -> dict[str, Any]:
         "llm": assistant.llm.describe(),
         "stt": assistant.stt.describe() if assistant.stt else "-",
         "tts": assistant.tts.describe() if assistant.tts else "-",
+        "vad": assistant.vad.describe() if assistant.vad else "-",
+        "eveil": assistant.wake.describe() if assistant.wake else "-",
         "plugins": len([r for r in assistant.registry.plugins.values() if r.ok]),
         "competences": len(assistant.registry.skills),
         "echecs": len(assistant.registry.failures()),

@@ -83,8 +83,7 @@ def test_les_etats_du_chemin_vocal(ecrire_plugin, dossier_plugins) -> None:
     asyncio.run(pipeline.voice_turn())
 
     assert etats == [
-        State.LISTEN, State.IDLE, State.TRANSCRIBE, State.IDLE,
-        State.THINK, State.ACT, State.SPEAK, State.IDLE,
+        State.LISTEN, State.TRANSCRIBE, State.THINK, State.ACT, State.SPEAK, State.IDLE,
     ]
 
 
