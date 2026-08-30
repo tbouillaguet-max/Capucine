@@ -326,6 +326,7 @@ Six plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `python.py` | Exécuter du Python, lancer un script, écrire du code avec le modèle local, l'expliquer. |
 | `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers, **indexer**. |
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
+| `calculrisque.py` | Piloter CalculRisque_Mark5 : mises à jour, optimisations de paramètres, création de stratégies. |
 
 Et un plugin d'**introspection** :
 
@@ -509,6 +510,56 @@ audio, et un plugin qu'elle s'écrit.
 Chacun se coupe séparément dans la configuration, et deux d'entre eux — le
 corpus sonore et l'index des documents — sont explicitement encadrés parce
 qu'ils touchent à ce que vous lui confiez.
+
+
+### Piloter un projet qu'elle connaît vraiment
+
+`projet.py` lance **n'importe quel** projet et rend compte. `calculrisque.py`
+en sait davantage sur **celui-là** : ses enchaînements nommés, ses cinq
+optimiseurs, et la forme exacte d'une stratégie dans son registre.
+
+```
+Vous  › fais la mise à jour quotidienne
+Capucine › C'est parti : mise à jour quotidienne, 1 étape.
+Vous  › optimise le seuil d'entrée
+Capucine › C'est parti. Ça prend des heures ; je vous préviens à la fin.
+                              ⟶ trois heures plus tard ⟵
+Capucine › optimisation seuil_entree : terminé, 1 étape réussie.
+Vous  › qu'est-ce que ça a donné
+Capucine › D'après seuil_entree_20260830.csv, le meilleur réglage est :
+           entry_threshold_pct 35, sharpe 1.42.
+```
+
+Trois choses, et les trois garde-fous qui vont avec :
+
+| Ce qu'elle sait faire | Le garde-fou |
+|---|---|
+| **Enchaîner** les étapes d'une mise à jour, en tâche de fond, journal lisible à la voix | un seul travail à la fois, et la chaîne s'arrête à la première étape qui échoue plutôt que de bâtir sur du faux |
+| **Optimiser** les paramètres (stops, rebalancement, convergence, seuil d'entrée, multiples) | elle **lit la source du script** pour savoir quels drapeaux il accepte : les cinq optimiseurs n'ont pas le même jeu d'options, et un drapeau inconnu ferait échouer argparse avant tout calcul |
+| **Créer une stratégie** dans `backtest/strategies/`, l'enregistrer, prouver qu'elle charge | **gabarit vérifié, pas de code écrit par le modèle** |
+
+**Le modèle n'écrit pas les stratégies.** Un 7B quantifié qui rédige de la
+logique de valorisation produit du code plausible et silencieusement faux — et
+il s'agit d'argent. Le gabarit reprend la mécanique de `valuation_gap_dcf`
+(écart corrigé de l'inflation, poids plafonnés par `capped_weights`) et n'y
+injecte que vos réglages : seuil d'entrée, conviction sur l'écart brut ou sur
+l'excédent sectoriel, pondération proportionnelle ou égale, plafond de
+positions, filtre de secteurs. Le fichier produit est compilé avant d'être
+écrit, puis Capucine interroge le **vrai registre** (`09_backtest.py
+--list-strategies`) pour vérifier qu'il charge — écrire un fichier qui ne
+s'importe pas serait pire que ne rien écrire.
+
+**Elle n'écrit jamais dans un fichier existant du dépôt**, à une exception
+près : la seule ligne d'import qui enregistre la nouvelle stratégie dans
+`backtest/strategies/__init__.py`, avec sauvegarde par l'atelier. Ni les
+scripts de valorisation, ni le moteur de backtest, ni `config.py` ne sont
+touchés. Et si ce fichier n'a pas la forme attendue, elle ne le retouche pas à
+l'aveugle : elle vous dit la ligne à ajouter.
+
+Tout passe par l'atelier : tant que vous n'avez pas ouvert le dossier du
+projet, ces compétences refusent. Les enchaînements et les optimiseurs sont
+déclarés dans `config/pc.toml` — ce sont des **données**, en ajouter un ne
+demande pas de toucher au plugin.
 
 
 ### Ce qu'elle a lu — vos documents, interrogeables

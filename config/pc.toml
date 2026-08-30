@@ -37,3 +37,44 @@ timeout = 10.0
 # Le mode replay, sans le moindre appel réseau, se lance en disant
 # « lance calculrisque avec l'option as of date deux mille vingt-cinq… » ou,
 # plus simplement, en réglant options_par_defaut = "--as-of-date 2025-06-30".
+
+# --- CalculRisque_Mark5, piloté de bout en bout -----------------------------
+#
+# « projet » lance N'IMPORTE QUEL projet ; « calculrisque » en sait davantage
+# sur CELUI-LÀ : ses enchaînements nommés, ses cinq optimiseurs, et la forme
+# exacte d'une stratégie dans son registre. Décommentez, ajustez le chemin.
+#
+# Le dossier doit être ouvert dans l'atelier, sinon toutes ces compétences
+# refusent — elles lancent des programmes et écrivent des fichiers.
+#
+# [plugins.calculrisque]
+# chemin = "~/projets/CalculRisque_Mark5"
+# delai_s = 21600                       # six heures : une optimisation en prend plusieurs
+# strategie_par_defaut = "valuation_gap_options"
+# variables = { SEC_CONTACT_EMAIL = "vous@exemple.fr", MISTRAL_API_KEY = "…" }
+#
+# Les enchaînements : une liste de commandes, jouées dans l'ordre, arrêtées à
+# la première qui échoue. Ce sont des DONNÉES — en ajouter un ne demande pas
+# de toucher au plugin.
+#
+# [plugins.calculrisque.enchainements]
+# quotidienne = ["03b_recuperation_cours_quotidiens.py"]
+# trimestrielle = ["run_pipeline_quarterly.py --resume"]
+# # Le backfill complet de l'univers historique, plusieurs milliers de requêtes :
+# historique = [
+#   "01b_historique_univers_sp500.py",
+#   "02_categoriser_secteurs.py --universe data/universe/sp500_universe_full.csv",
+#   "03b_recuperation_cours_quotidiens.py --tickers data/universe/sp500_universe_full.csv",
+#   "04_recuperation_10k.py --tickers data/universe/sp500_universe_full.csv",
+#   "04b_recuperation_10q.py --tickers data/universe/sp500_universe_full.csv",
+#   "05_calcul_multiples.py",
+#   "07_calcul_dcf.py",
+#   "06b_calcul_valorisation_combinee.py",
+# ]
+#
+# [plugins.calculrisque.optimisations]
+# stops = "11_optimize_options_stops.py"
+# rebalancement = "11b_optimize_rebalance_threshold.py"
+# convergence = "11c_optimize_convergence_fraction.py"
+# seuil_entree = "11d_optimize_entry_threshold.py"
+# multiples = "optimize_options_multiples.py"
