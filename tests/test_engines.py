@@ -280,3 +280,110 @@ def test_les_arguments_passes_a_piper_existent_vraiment() -> None:
     # `sample_rate` est un champ de dataclasse, `audio_int16_bytes` une propriété.
     morceau = {champ.name for champ in dataclasses.fields(piper.AudioChunk)} | set(dir(piper.AudioChunk))
     assert {"audio_int16_bytes", "sample_rate"} <= morceau
+
+
+# --- « injoignable » recouvre deux pannes très différentes -------------------
+
+class _SansPaquet:
+    """Fait disparaître un module, comme sur une machine où il n'est pas installé."""
+
+    def __init__(self, monkeypatch, nom: str) -> None:
+        import builtins
+        import sys
+
+        vrai = builtins.__import__
+
+        def faux(module, *args, **kwargs):
+            if module == nom or module.startswith(f"{nom}."):
+                raise ImportError(f"No module named '{nom}'")
+            return vrai(module, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", faux)
+        monkeypatch.setitem(sys.modules, nom, None)
+        monkeypatch.delitem(sys.modules, nom, raising=False)
+
+
+def test_un_paquet_absent_ne_se_confond_pas_avec_un_service_muet(monkeypatch) -> None:
+    """La panne que l'utilisateur a réellement rencontrée.
+
+    « ollama pull » marche par le binaire natif ; le paquet Python est une
+    dépendance séparée. Annoncer « injoignable » quand c'est lui qui manque
+    envoie réinstaller un service qui tourne très bien.
+    """
+    from capucine.core.engines.llm.ollama import OllamaLLM
+
+    _SansPaquet(monkeypatch, "ollama")
+    moteur = OllamaLLM()
+    assert not moteur.available()
+    assert "paquet" in moteur.unavailable_reason()
+    assert "pip install ollama" in moteur.unavailable_reason()
+
+
+def test_un_service_muet_dit_ou_le_chercher() -> None:
+    from capucine.core.engines.llm.ollama import OllamaLLM
+
+    # Port absurde : rien n'écoute, mais le paquet est là.
+    moteur = OllamaLLM(host="http://127.0.0.1:1")
+    assert not moteur.available()
+    raison = moteur.unavailable_reason()
+    assert "ne répond pas" in raison and "127.0.0.1:1" in raison
+
+
+def test_le_vectoriseur_distingue_aussi_les_deux(monkeypatch) -> None:
+    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+
+    muet = OllamaEmbeddings(host="http://127.0.0.1:1")
+    assert not muet.available()
+    assert "ne répond pas" in muet.unavailable_reason()
+
+    _SansPaquet(monkeypatch, "ollama")
+    sans_paquet = OllamaEmbeddings()
+    assert not sans_paquet.available()
+    assert "pip install ollama" in sans_paquet.unavailable_reason()
+
+
+def test_le_modele_non_tire_est_une_troisieme_panne(monkeypatch) -> None:
+    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+
+    class Entree:
+        model = "qwen2.5:7b-instruct-q4_K_M"
+
+    class Listing:
+        models = [Entree()]
+
+    moteur = OllamaEmbeddings()
+    monkeypatch.setattr(
+        moteur, "_get_client",
+        lambda: type("C", (), {"list": staticmethod(lambda: Listing())})(),
+    )
+    assert not moteur.available()
+    raison = moteur.unavailable_reason()
+    # Le service répond : ce n'est ni le paquet, ni le service.
+    assert "ollama pull nomic-embed-text" in raison
+    assert "répond" in raison
+
+
+def test_un_moteur_disponible_n_a_pas_de_raison(monkeypatch) -> None:
+    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+
+    class Entree:
+        model = "nomic-embed-text:latest"
+
+    class Listing:
+        models = [Entree()]
+
+    moteur = OllamaEmbeddings()
+    monkeypatch.setattr(
+        moteur, "_get_client",
+        lambda: type("C", (), {"list": staticmethod(lambda: Listing())})(),
+    )
+    assert moteur.available()
+    assert moteur.unavailable_reason() == ""
+
+
+def test_llamacpp_nomme_ce_qui_manque(tmp_path) -> None:
+    from capucine.core.engines.llm.llamacpp import LlamaCppLLM
+
+    moteur = LlamaCppLLM()
+    assert not moteur.available()
+    assert "llm.model_path" in moteur.unavailable_reason()

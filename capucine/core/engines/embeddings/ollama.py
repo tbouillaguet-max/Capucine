@@ -16,7 +16,7 @@ from typing import Any
 from ...errors import EngineUnavailable
 from ...interfaces.embeddings import EmbeddingEngine
 from ...logging import get_logger
-from ..llm.ollama import exiger_hote_local
+from ..llm.ollama import _service_muet, exiger_hote_local
 
 logger = get_logger("embeddings.ollama")
 
@@ -38,6 +38,7 @@ class OllamaEmbeddings(EmbeddingEngine):
         self.keep_alive = keep_alive
         self.timeout = timeout
         self._client: Any = None
+        self._raison = ""
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -59,7 +60,11 @@ class OllamaEmbeddings(EmbeddingEngine):
         """
         try:
             listing = self._get_client().list()
+        except EngineUnavailable as exc:
+            self._raison = str(exc)
+            return False
         except Exception as exc:
+            self._raison = _service_muet(self.host)
             logger.debug("Ollama injoignable pour les plongements : %s", exc)
             return False
         # `list()` rend un objet pydantic dont `.models` porte des entrées à
@@ -79,12 +84,16 @@ class OllamaEmbeddings(EmbeddingEngine):
         # « nomic-embed-text » : on compare sur la racine.
         racine = self.model.split(":")[0]
         if not any(nom.split(":")[0] == racine for nom in noms):
-            logger.warning(
-                "Le modèle de plongement « %s » n'est pas installé. Tirez-le avec : "
-                "ollama pull %s", self.model, racine,
+            self._raison = (
+                f"Le service répond, mais le modèle de plongement « {self.model} » "
+                f"n'est pas tiré. Faites : ollama pull {racine}"
             )
             return False
+        self._raison = ""
         return True
+
+    def unavailable_reason(self) -> str:
+        return self._raison
 
     def encode(self, textes: Sequence[str]) -> list[list[float]]:
         if not textes:

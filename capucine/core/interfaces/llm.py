@@ -83,6 +83,16 @@ class LLMEngine(ABC):
         """
         yield self.chat(messages, temperature=temperature, max_tokens=max_tokens, stop=stop)
 
+    def unavailable_reason(self) -> str:
+        """Pourquoi ``available()`` a dit non, en une phrase actionnable.
+
+        « Injoignable » recouvre deux pannes très différentes — le paquet
+        Python absent et le service qui ne répond pas — et le remède n'est
+        pas le même. Un moteur qui ne distingue pas les deux envoie
+        l'utilisateur chercher au mauvais endroit.
+        """
+        return ""
+
     def warmup(self) -> None:
         """Charge le modèle avant le premier tour, pour ne pas payer la
         latence de chargement devant l'utilisateur."""

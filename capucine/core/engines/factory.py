@@ -104,10 +104,16 @@ def build_llm(config: Any) -> LLMEngine:
         return _instantiate(LLM_ENGINES, "LLM", "mock", {})
 
     if not engine.available():
+        logger.warning("Moteur LLM « %s » inutilisable.", engine.describe())
+        raison = engine.unavailable_reason()
+        if raison:
+            # Nommer la vraie panne : « injoignable » tout court a déjà envoyé
+            # quelqu'un réinstaller un service qui tournait très bien, alors
+            # que c'est le paquet Python qui manquait.
+            logger.warning("→ %s", raison)
         logger.warning(
-            "Moteur LLM « %s » injoignable. Repli sur le moteur factice : "
-            "les compétences restent utilisables, la conversation libre non.",
-            engine.describe(),
+            "Repli sur le moteur factice : les compétences restent utilisables, "
+            "la conversation libre non."
         )
         return _instantiate(LLM_ENGINES, "LLM", "mock", {})
     logger.info("Moteur LLM : %s", engine.describe())
@@ -144,10 +150,12 @@ def build_embeddings(config: Any) -> EmbeddingEngine | None:
     if not engine.available():
         niveau = logger.info if automatique else logger.warning
         niveau(
-            "Vectoriseur « %s » indisponible : la recherche dans vos documents "
-            "restera lexicale. Pour la recherche par le sens : ollama pull %s",
-            engine.describe(), getattr(engine, "model", "nomic-embed-text"),
+            "Vectoriseur « %s » inutilisable : la recherche dans vos documents "
+            "restera lexicale.", engine.describe(),
         )
+        raison = engine.unavailable_reason()
+        if raison:
+            niveau("→ %s", raison)
         return None
     logger.info("Vectoriseur : %s", engine.describe())
     return engine

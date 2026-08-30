@@ -43,6 +43,7 @@ class LlamaCppEmbeddings(EmbeddingEngine):
         self.n_batch = n_batch
         self.verbose = verbose
         self._llama: Any = None
+        self._raison = ""
 
     def _get_llama(self) -> Any:
         if self._llama is None:
@@ -74,12 +75,24 @@ class LlamaCppEmbeddings(EmbeddingEngine):
 
     def available(self) -> bool:
         if not self.model_path or not self.model_path.exists():
+            self._raison = (
+                f"Modèle GGUF introuvable : {self.model_path or '(non renseigné)'}. "
+                "Renseignez connaissances.model_path dans la configuration."
+            )
             return False
         try:
             import llama_cpp  # noqa: F401
         except ImportError:
+            self._raison = (
+                "Le paquet « llama-cpp-python » est absent. Installez-le avec : "
+                "pip install llama-cpp-python"
+            )
             return False
+        self._raison = ""
         return True
+
+    def unavailable_reason(self) -> str:
+        return self._raison
 
     def encode(self, textes: Sequence[str]) -> list[list[float]]:
         if not textes:

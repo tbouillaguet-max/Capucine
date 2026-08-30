@@ -40,6 +40,15 @@ def exiger_hote_local(host: str) -> None:
         )
 
 
+def _service_muet(host: str) -> str:
+    """Le message quand le service ne répond pas — partagé avec les plongements."""
+    return (
+        f"Le service Ollama ne répond pas sur {host}. Sous Windows il démarre "
+        "avec la session (icône dans la zone de notification) ; sous Linux, "
+        "« systemctl status ollama », ou « ollama serve » dans un autre terminal."
+    )
+
+
 class OllamaLLM(LLMEngine):
     name = "ollama"
 
@@ -61,6 +70,7 @@ class OllamaLLM(LLMEngine):
         self.keep_alive = keep_alive
         self.timeout = timeout
         self._client: Any = None
+        self._raison = ""
 
     # -- accès paresseux au client -----------------------------------------
     def _get_client(self) -> Any:
@@ -77,10 +87,22 @@ class OllamaLLM(LLMEngine):
     def available(self) -> bool:
         try:
             self._get_client().list()
-            return True
-        except Exception as exc:
-            logger.debug("Ollama indisponible : %s", exc)
+        except EngineUnavailable as exc:
+            # Le paquet Python manque : rien à voir avec le service, qui peut
+            # très bien tourner — « ollama pull » marche par le binaire natif,
+            # pas par ce paquet-là. Confondre les deux envoie chercher au
+            # mauvais endroit.
+            self._raison = str(exc)
             return False
+        except Exception as exc:
+            self._raison = _service_muet(self.host)
+            logger.debug("Ollama injoignable : %s", exc)
+            return False
+        self._raison = ""
+        return True
+
+    def unavailable_reason(self) -> str:
+        return self._raison
 
     def _options(self, temperature: float | None, max_tokens: int | None, stop: list[str] | None) -> dict[str, Any]:
         options: dict[str, Any] = {

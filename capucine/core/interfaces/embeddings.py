@@ -42,6 +42,14 @@ class EmbeddingEngine(ABC):
         bien moins cher que cent appels.
         """
 
+    def unavailable_reason(self) -> str:
+        """Pourquoi ``available()`` a dit non, en une phrase actionnable.
+
+        Même raison qu'ailleurs : paquet absent, service muet et modèle non
+        tiré sont trois pannes distinctes, avec trois remèdes distincts.
+        """
+        return ""
+
     def close(self) -> None:
         """Libère les ressources."""
 
