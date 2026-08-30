@@ -58,6 +58,10 @@ class Atelier:
     taille_max_ko: int = 512
     corbeille: Path | None = None
     motifs_interdits: tuple[str, ...] = MOTIFS_INTERDITS
+    # Racines demandées mais introuvables. Gardées pour pouvoir le dire au
+    # démarrage : un atelier vide sans explication, c'est dix minutes perdues
+    # à se demander pourquoi toutes les compétences refusent.
+    racines_ignorees: list[str] = field(default_factory=list)
 
     @property
     def ouvert(self) -> bool:
@@ -103,7 +107,9 @@ class Atelier:
                     f"« {chemin.name} » est dans un dossier sensible ({interdit}) : je n'y touche pas."
                 )
         nom = chemin.name.lower()
-        relatif = str(chemin).lower()
+        # Séparateurs normalisés : sous Windows, un motif comme « .git/config »
+        # ne rencontrerait jamais « C:\\…\\.git\\config ».
+        relatif = str(chemin).lower().replace("\\", "/")
         for motif in self.motifs_interdits:
             if fnmatch.fnmatch(nom, motif) or fnmatch.fnmatch(relatif, f"*{motif}"):
                 raise AtelierError(
@@ -215,12 +221,14 @@ def depuis_config(config) -> Atelier:
     """Construit l'atelier décrit par ``[atelier]``. Vide par défaut."""
     section = config.section("atelier")
     racines: list[Path] = []
+    ignorees: list[str] = []
     for brut in section.get("racines", []) or []:
         chemin = Path(str(brut)).expanduser()
         if chemin.is_dir():
             racines.append(chemin.resolve())
         else:
             logger.warning("Racine d'atelier ignorée (dossier absent) : %s", chemin)
+            ignorees.append(str(chemin))
 
     corbeille = section.get("corbeille")
     return Atelier(
@@ -229,4 +237,5 @@ def depuis_config(config) -> Atelier:
         taille_max_ko=int(section.get("taille_max_ko", 512)),
         corbeille=Path(str(corbeille)).expanduser() if corbeille else None,
         motifs_interdits=tuple(section.get("motifs_interdits", MOTIFS_INTERDITS)),
+        racines_ignorees=ignorees,
     )

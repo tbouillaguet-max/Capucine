@@ -382,6 +382,38 @@ def _annoncer_demarrage(assistant: Assistant) -> None:
     # douze secondes : les remarques matérielles sortent au démarrage.
     for remarque in conseils(assistant.config):
         print(f"  ⚠ {remarque}")
+    for remarque in _remarques_atelier(assistant):
+        print(f"  ⚠ {remarque}")
+
+
+def _remarques_atelier(assistant: Assistant) -> list[str]:
+    """Dit tout de suite si l'atelier est fermé, et pourquoi.
+
+    Sans cela, les treize compétences qui touchent au disque refusent une par
+    une sans qu'on comprenne d'où vient le problème — alors que la cause tient
+    en une ligne : le dossier demandé n'existe pas.
+    """
+    espace = assistant.atelier
+    if espace is None or espace.ouvert:
+        return []
+
+    concernees = sorted({
+        spec.plugin for spec in assistant.registry.skills.values()
+        if spec.plugin in ("fichiers", "python", "projet")
+    })
+    suffixe = (
+        f" Les compétences {', '.join(concernees)} refuseront." if concernees else ""
+    )
+    if espace.racines_ignorees:
+        return [
+            "Dossier de travail introuvable : "
+            + ", ".join(espace.racines_ignorees)
+            + f". Vérifiez le chemin.{suffixe}"
+        ]
+    return [
+        "Aucun dossier de travail ouvert (atelier.racines est vide). "
+        f"Lancez avec --atelier CHEMIN, ou renseignez la configuration.{suffixe}"
+    ]
 
 
 # --- mode texte ------------------------------------------------------------

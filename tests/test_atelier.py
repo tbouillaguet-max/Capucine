@@ -158,3 +158,28 @@ def test_les_reglages_sont_lus(tmp_path: Path) -> None:
     espace = depuis_config(config)
     assert espace.lecture_seule and espace.taille_max_ko == 42
     assert espace.corbeille == tmp_path / "poubelle"
+
+
+# --- ce que l'utilisateur voit au démarrage ---------------------------------
+
+def test_une_racine_introuvable_est_retenue_pour_etre_dite(tmp_path: Path) -> None:
+    # Un atelier vide sans explication, c'est dix minutes perdues à se demander
+    # pourquoi toutes les compétences refusent.
+    config = Config({"atelier": {"racines": [str(tmp_path / "absent")]}})
+    espace = depuis_config(config)
+    assert not espace.ouvert
+    assert espace.racines_ignorees == [str(tmp_path / "absent")]
+
+
+def test_un_atelier_bien_configure_ne_signale_rien(tmp_path: Path) -> None:
+    espace = depuis_config(Config({"atelier": {"racines": [str(tmp_path)]}}))
+    assert espace.ouvert and espace.racines_ignorees == []
+
+
+def test_les_motifs_proteges_tolerent_les_separateurs_windows(tmp_path: Path) -> None:
+    # Sous Windows un chemin s'écrit avec des antislashs ; un motif comme
+    # « .git/config » ne le rencontrerait jamais sans normalisation.
+    espace = Atelier(racines=[tmp_path], motifs_interdits=(".git/config",))
+    faux_chemin = Path(str(tmp_path) + "/.git/config")
+    with pytest.raises(AtelierError, match="protégé"):
+        espace._verifier_interdits(faux_chemin)
