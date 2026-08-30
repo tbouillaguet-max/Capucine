@@ -1,0 +1,76 @@
+# Les tâches du banc de mesure.
+#
+# Chacune est notée en LANÇANT le code produit : il s'exécute et ses
+# assertions passent, ou il ne compte pas. Aucun jugement subjectif, aucun
+# modèle-juge — la même récompense vérifiable qui a fait progresser les
+# modèles de code.
+#
+# Ajoutez les vôtres : le banc n'a de valeur que s'il ressemble à ce que
+# vous demandez vraiment.
+
+[[tache]]
+nom = "somme_carres"
+famille = "logique"
+description = """Écris une fonction somme_des_carres(n) qui rend la somme des \
+carrés des entiers de 1 à n inclus."""
+verification = """
+assert somme_des_carres(3) == 14
+assert somme_des_carres(1) == 1
+assert somme_des_carres(0) == 0
+"""
+
+[[tache]]
+nom = "mediane"
+famille = "logique"
+description = """Écris une fonction mediane(valeurs) qui rend la médiane d'une \
+liste de nombres, sans utiliser statistics. Sur une liste de longueur paire, \
+rends la moyenne des deux valeurs centrales."""
+verification = """
+assert mediane([3, 1, 2]) == 2
+assert mediane([4, 1, 2, 3]) == 2.5
+assert mediane([7]) == 7
+"""
+
+[[tache]]
+nom = "parse_date"
+famille = "logique"
+description = """Écris une fonction trimestre(date_iso) qui prend une date \
+'AAAA-MM-JJ' et rend son trimestre sous la forme 'T1'..'T4'."""
+verification = """
+assert trimestre('2024-01-15') == 'T1'
+assert trimestre('2024-06-30') == 'T2'
+assert trimestre('2024-12-31') == 'T4'
+"""
+
+[[tache]]
+nom = "poids_plafonnes"
+famille = "api"
+description = """Écris une fonction repartir(convictions) qui pondère un \
+dictionnaire {symbole: conviction} en plafonnant chaque poids, en utilisant \
+la fonction capped_weights du projet."""
+doit_appeler = ["capped_weights"]
+verification = """
+assert callable(repartir)
+"""
+
+[[tache]]
+nom = "ecart_inflation"
+famille = "api"
+description = """Écris une fonction corriger(signaux) qui corrige la colonne \
+gap_pct d'un DataFrame de l'inflation attendue, en utilisant la fonction du \
+projet prévue pour ça."""
+doit_appeler = ["inflation_adjusted_gap"]
+verification = """
+assert callable(corriger)
+"""
+
+[[tache]]
+nom = "prix_option"
+famille = "api"
+description = """Écris une fonction prime(spot, strike, annees, vol) qui rend \
+le prix d'un call, en utilisant la fonction de valorisation Black-Scholes du \
+projet."""
+doit_appeler = ["bs_price"]
+verification = """
+assert callable(prime)
+"""

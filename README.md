@@ -323,7 +323,7 @@ Six plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `memoire.py` | Retenir un fait durablement, retrouver un passage d'une conversation passée, en reprendre une. |
 | `recherche.py` | Chercher sur le web et lire une page. **Le seul plugin qui sort de la machine.** |
 | `fichiers.py` | Lister, lire, chercher, compléter, écrire, déplacer, jeter — dans un périmètre que vous ouvrez. |
-| `python.py` | Exécuter du Python, lancer un script, écrire du code avec le modèle local, l'expliquer. |
+| `python.py` | Exécuter du Python, écrire du code **en voyant les signatures de vos fonctions**, et boucler jusqu'à ce qu'il tourne. |
 | `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers, **indexer**. |
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
 | `calculrisque.py` | Piloter CalculRisque_Mark5 : mises à jour, optimisations de paramètres, création de stratégies. |
@@ -489,6 +489,73 @@ hors-ligne. Trois moteurs :
 
 Elle annonce qu'elle va sur le réseau plutôt que de le faire en silence, et
 hors-ligne elle le dit au lieu de planter.
+
+### Coder sur VOTRE dépôt : trois leviers, et de quoi les mesurer
+
+Le mode d'échec numéro un d'un petit modèle sur un dépôt qu'il ne connaît pas
+n'est pas la syntaxe, c'est l'**invention d'API**. Il ignore que
+`capped_weights(conviction, cap_pct=None)` existe, alors il écrit
+`normalize_weights()` — plausible, inexistante, et rien ne tourne.
+
+```
+Vous  › écris une fonction qui pondère des convictions en plafonnant les poids
+Capucine › J'ai écrit 12 lignes, en voyant 2 de vos fonctions.
+                                     ⟶ affiché ⟵
+             def backtest.strategies.base.capped_weights(conviction: pd.Series,
+                 cap_pct: float | None = None, max_iter: int = 20) -> pd.Series
+                 → Poids proportionnels à `conviction`, aucun ne dépassant
+                   cap_pct % du portefeuille.
+```
+
+**1. Le catalogue d'API** (`capucine/core/catalogue.py`). Il lit vos signatures
+et vos docstrings **par AST, jamais par import** — aucun effet de bord, et pas
+besoin que les dépendances du dépôt soient installées. C'est le mécanisme de
+`schema.py` (signature + docstring = contrat) appliqué au code que vous
+écrivez, et plus seulement aux compétences.
+
+Il ne déverse pas : il **sélectionne**. Injecter douze fonctions au hasard dans
+le contexte d'un 7B est pire que n'en injecter aucune, donc une demande sans
+rapport ne rend **rien**. Le tri se fait sur la forme de la distribution — une
+demande qui a sa réponse dans le dépôt produit un pic, une demande hors sujet
+un plateau — avec un plancher mesuré, pas deviné (voir le commentaire dans le
+code, et refaites la mesure si vous changez le score).
+
+Vos identifiants sont en anglais, vos docstrings et vos demandes en français :
+l'appariement se fait donc aussi **par cognat**, et « volatilité réalisée »
+retrouve `realized_volatility`. Limite assumée : « pricer » ne trouve pas
+`pricing`, les deux ne partagent pas assez de préfixe.
+
+**2. La boucle de vérification** — « écris ça et teste-le ». Elle écrit,
+exécute, lit la trace d'erreur, corrige, et recommence, bornée en tentatives.
+C'est le levier le plus sous-estimé et il ne coûte pas un octet de GPU : un
+modèle qui voit sa propre trace transforme un pari en itération.
+
+Ce qu'elle **n'établit pas** : que le résultat soit juste. Elle prouve que le
+code s'exécute sans lever, ce qui n'est pas la même chose — un calcul faux qui
+ne plante pas passe ce filtre.
+
+**3. Le modèle.** `ollama pull qwen2.5-coder:7b`, puis `llm.model` dans la
+configuration. Même taille que le généraliste, entraîné pour le code.
+
+#### Et le banc, pour ne croire personne sur parole
+
+```bash
+python tools/banc_de_code.py --atelier ~/projets/CalculRisque_Mark5 --variantes
+```
+
+Il joue les mêmes tâches dans les quatre combinaisons catalogue × boucle et
+**note en exécutant** : le code produit et sa vérification tournent ensemble,
+et la tâche passe si le processus rend zéro. Aucun modèle-juge, aucune
+appréciation — la même récompense vérifiable qui a fait progresser les modèles
+de code.
+
+Les tâches sont dans `tools/banc/taches.toml`, en deux familles : **logique**
+(la boucle se voit là) et **api** — celles-là exigent que le code appelle
+vraiment `capped_weights` ou `bs_price`, et c'est là que le catalogue se voit.
+Ajoutez les vôtres : un banc n'a de valeur que s'il ressemble à ce que vous
+demandez vraiment. Lisez les colonnes plutôt que le total — un levier qui ne
+bouge pas sa colonne ne paye pas.
+
 
 ### Comment elle apprend — les six mécanismes
 
@@ -733,6 +800,7 @@ capucine/
     ├── memoire.py          historique et faits durables (SQLite)
     ├── apprentissage.py    formulations, corrections, vocabulaire (SQLite)
     ├── semantique.py       index des documents lus, recherche par le sens
+    ├── catalogue.py        les signatures de VOS fonctions, lues par AST
     ├── corpus.py           les extraits d'éveil gardés pour réapprendre votre voix
     ├── journal.py          les derniers gestes, pour apprendre une routine
     ├── atelier.py          la frontière entre Capucine et vos fichiers
@@ -756,6 +824,7 @@ capucine/
         ├── vad/            silero (onnxruntime), énergie, scripted
         └── wake/           openwakeword, vosk, scripted
 tools/entrainer_capucine.py entraînement du mot d'éveil, et mesure du seuil
+tools/banc_de_code.py       mesure ce qui fait vraiment coder Capucine
 plugins/                    ← LE dossier
 config/                     default.toml, pc.toml, pi.toml, persona.txt
 ```

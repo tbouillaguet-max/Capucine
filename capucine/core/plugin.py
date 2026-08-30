@@ -63,6 +63,8 @@ __all__ = [
     "set_dossier_des_plugins",
     "pile_d_appels",
     "adopter_la_pile",
+    "catalogue",
+    "set_catalogue",
     "register_context",
     "clear_context",
     "contexte_de",
@@ -344,6 +346,7 @@ _CORPUS: Any = None
 _REGISTRE: Any = None
 _JOURNAL: Any = None
 _DOSSIER_PLUGINS: Any = None
+_CATALOGUE: Any = None
 # Profondeur d'imbrication autorisée quand une compétence en appelle une
 # autre. Trois suffit à composer des routines ; au-delà, c'est une boucle.
 PROFONDEUR_MAX = 3
@@ -556,6 +559,26 @@ def dossier_des_plugins() -> Path:
             "accessible en écriture."
         )
     return _DOSSIER_PLUGINS
+
+
+def set_catalogue(instance: Any) -> None:
+    """Branche le catalogue d'API — les signatures de VOS fonctions."""
+    global _CATALOGUE
+    _CATALOGUE = instance
+
+
+def catalogue() -> Any:
+    """Les signatures du dépôt courant, pour que le modèle n'invente pas d'API.
+
+    C'est le contrat de ``schema.py`` — signature plus docstring égale contrat
+    — appliqué au code que vous écrivez, et plus seulement aux compétences.
+    """
+    if _CATALOGUE is None:
+        raise SkillRefused(
+            "Aucun catalogue d'API n'est disponible. Renseignez catalogue.racine "
+            "dans la configuration, ou lancez avec --atelier sur un dépôt."
+        )
+    return _CATALOGUE
 
 
 def set_conversation(instance: Any) -> None:

@@ -355,3 +355,139 @@ def test_retrouver_et_reprendre_une_conversation(banc) -> None:
     assert "reprenons" in reprise.speak
     assert fil.session_id == ancienne.id
     assert [m.content for m in fil.history()] == ["parlons du backtest options", "avec plaisir"]
+
+
+# --- le catalogue d'API dans l'écriture de code, et la boucle ---------------
+
+CATALOGUE_MODULE = '''
+def capped_weights(conviction, cap_pct: float | None = None):
+    """Poids proportionnels à la conviction, chacun plafonné."""
+    return conviction
+'''
+
+
+@pytest.fixture
+def banc_de_code(tmp_path):
+    """Un atelier avec un petit dépôt, un catalogue, et un modèle scripté."""
+    from capucine.core import plugin as contrat
+    from capucine.core.atelier import depuis_config as atelier_depuis_config
+    from capucine.core.catalogue import Catalogue
+    from capucine.core.config import PROJECT_ROOT, Config
+    from capucine.core.registry import PluginRegistry
+
+    depot = tmp_path / "projet"
+    depot.mkdir()
+    (depot / "outils.py").write_text(CATALOGUE_MODULE, encoding="utf-8")
+
+    config = Config({
+        "atelier": {"racines": [str(depot)], "corbeille": str(tmp_path / "corbeille")},
+    })
+    contrat.set_atelier(atelier_depuis_config(config))
+    contrat.set_catalogue(Catalogue(depot))
+
+    vus: list[tuple[str, str]] = []
+    reponses: list[str] = []
+
+    def modele(prompt, *, system="", **kwargs):
+        vus.append((system, prompt))
+        return reponses.pop(0) if reponses else "print('rien')\n"
+
+    contrat.set_model_access(modele)
+    registry = PluginRegistry([PROJECT_ROOT / "plugins"], config=config,
+                              data_root=tmp_path / "data")
+    registry.load_all()
+    yield {"registre": registry, "vus": vus, "reponses": reponses, "depot": depot}
+    for nom in list(registry.plugins):
+        registry.unload(nom, notify=False)
+    contrat.set_atelier(None)
+    contrat.set_catalogue(None)
+    contrat.set_model_access(None)
+
+
+def test_les_signatures_du_projet_entrent_dans_le_contexte(banc_de_code) -> None:
+    banc_de_code["reponses"].append("x = 1\n")
+    banc_de_code["registre"].call(
+        "ecrire_du_code", {"description": "pondère des convictions en plafonnant les poids"}
+    )
+    system, _ = banc_de_code["vus"][0]
+    # Le modèle voit la signature RÉELLE : il ne peut plus l'inventer.
+    assert "capped_weights(conviction, cap_pct: float | None = None)" in system
+    assert "N'invente jamais de fonction" in system
+
+
+def test_une_demande_sans_rapport_n_encombre_pas_le_contexte(banc_de_code) -> None:
+    banc_de_code["reponses"].append("x = 1\n")
+    banc_de_code["registre"].call("ecrire_du_code", {"description": "dis bonjour"})
+    system, _ = banc_de_code["vus"][0]
+    assert "capped_weights" not in system
+
+
+def test_le_catalogue_se_coupe_par_configuration(tmp_path) -> None:
+    from capucine.core import plugin as contrat
+    from capucine.core.atelier import depuis_config as atelier_depuis_config
+    from capucine.core.catalogue import Catalogue
+    from capucine.core.config import PROJECT_ROOT, Config
+    from capucine.core.registry import PluginRegistry
+
+    depot = tmp_path / "p"
+    depot.mkdir()
+    (depot / "outils.py").write_text(CATALOGUE_MODULE, encoding="utf-8")
+    config = Config({
+        "atelier": {"racines": [str(depot)], "corbeille": str(tmp_path / "c")},
+        "plugins": {"python": {"api_en_contexte": False}},
+    })
+    contrat.set_atelier(atelier_depuis_config(config))
+    contrat.set_catalogue(Catalogue(depot))
+    vus: list[str] = []
+    contrat.set_model_access(lambda p, *, system="", **k: vus.append(system) or "x = 1\n")
+    registry = PluginRegistry([PROJECT_ROOT / "plugins"], config=config, data_root=tmp_path / "d")
+    registry.load_all()
+    try:
+        registry.call("ecrire_du_code", {"description": "pondère des convictions plafonnées"})
+        assert "capped_weights" not in vus[0]
+    finally:
+        for nom in list(registry.plugins):
+            registry.unload(nom, notify=False)
+        contrat.set_atelier(None)
+        contrat.set_catalogue(None)
+        contrat.set_model_access(None)
+
+
+def test_la_boucle_corrige_apres_avoir_lu_la_trace(banc_de_code) -> None:
+    banc_de_code["reponses"] += [
+        "total = valeur_inexistante\n",           # NameError
+        "total = 2\nprint('ok', total)\n",        # corrigé
+    ]
+    resultat = banc_de_code["registre"].call(
+        "coder_et_verifier", {"description": "calcule un total"}, confirmed=True
+    )
+    assert resultat.ok and "2 essais" in resultat.speak
+    assert "✓ le code s'exécute" in resultat.display
+    # La trace exacte est passée au modèle : c'est tout l'intérêt.
+    _, prompt = banc_de_code["vus"][1]
+    assert "NameError" in prompt
+
+
+def test_la_boucle_est_bornee(banc_de_code) -> None:
+    banc_de_code["reponses"] += ["raise SystemExit(1)\n"] * 5
+    resultat = banc_de_code["registre"].call(
+        "coder_et_verifier", {"description": "échoue toujours", "tentatives": 2},
+        confirmed=True,
+    )
+    assert not resultat.ok or "n'y arrive pas" in resultat.speak
+    assert len(banc_de_code["vus"]) == 2       # deux essais, pas plus
+
+
+def test_la_boucle_demande_confirmation(banc_de_code) -> None:
+    demande = banc_de_code["registre"].call("coder_et_verifier", {"description": "x"})
+    assert demande.needs_confirmation
+    assert banc_de_code["vus"] == []           # rien n'a été demandé au modèle
+
+
+def test_lister_les_fonctions_du_projet(banc_de_code) -> None:
+    resultat = banc_de_code["registre"].call("fonctions_du_projet")
+    assert resultat.ok and "entrées" in resultat.display
+    trouvee = banc_de_code["registre"].call(
+        "fonctions_du_projet", {"sujet": "poids plafonnés"}
+    )
+    assert trouvee.ok and "capped_weights" in trouvee.display

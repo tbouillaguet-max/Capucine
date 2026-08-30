@@ -17,6 +17,8 @@ from .core.apprentissage import depuis_config as apprentissage_depuis_config
 from .core.atelier import Atelier
 from .core.atelier import depuis_config as atelier_depuis_config
 from .core.audio import AudioInput, AudioOutput
+from .core.catalogue import Catalogue
+from .core.catalogue import depuis_config as catalogue_depuis_config
 from .core.config import Config
 from .core.conversation import Conversation, load_persona
 from .core.corpus import CorpusEveil
@@ -47,6 +49,7 @@ from .core.pipeline import Pipeline
 from .core.plugin import (
     set_apprentissage,
     set_atelier,
+    set_catalogue,
     set_connaissances,
     set_conversation,
     set_corpus,
@@ -86,6 +89,7 @@ class Assistant:
     apprentissage: Apprentissage | None = None
     connaissances: Connaissances | None = None
     corpus: CorpusEveil | None = None
+    catalogue: Catalogue | None = None
     journal: JournalDesAppels | None = None
 
     async def aclose(self) -> None:
@@ -110,6 +114,7 @@ class Assistant:
         set_apprentissage(None)
         set_connaissances(None)
         set_corpus(None)
+        set_catalogue(None)
         set_journal(None)
         set_dossier_des_plugins(None)
         set_registre(None)
@@ -162,6 +167,11 @@ def build_assistant(
     # mode lexical — c'est le repli, pas l'absence.
     connaissances = connaissances_depuis_config(config, build_embeddings(config))
     corpus = corpus_depuis_config(config)
+    # Le catalogue d'API : les signatures de VOS fonctions, pour que le
+    # modèle appelle ce qui existe au lieu d'inventer ce qui sonne juste.
+    # À défaut de racine déclarée, le premier dossier de l'atelier fait
+    # l'affaire — c'est celui sur lequel on travaille.
+    catalogue = catalogue_depuis_config(config)
     journal = JournalDesAppels(int(config.get("assistant.journal_des_appels", 12)))
     conversation = Conversation(
         persona=load_persona(config.resolve_path("assistant.persona_file")),
@@ -180,7 +190,10 @@ def build_assistant(
     # Les trois ressources que le cœur prête aux plugins. `demander_au_modele`
     # est une complétion simple : jamais de routage, donc pas de récursion.
     atelier = atelier_depuis_config(config)
+    if catalogue is None and atelier.racines:
+        catalogue = Catalogue(atelier.racines[0])
     set_atelier(atelier)
+    set_catalogue(catalogue)
     set_memoire(memoire)
     set_conversation(conversation)
     set_apprentissage(apprentissage)
@@ -240,6 +253,7 @@ def build_assistant(
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
         memoire=memoire, atelier=atelier, apprentissage=apprentissage,
         connaissances=connaissances, corpus=corpus, journal=journal,
+        catalogue=catalogue,
     )
 
 

@@ -61,6 +61,22 @@ secondes_avant = 1.6
 secondes_apres = 0.4
 maximum_par_classe = 300   # au-delà, les plus anciens extraits sont effacés
 
+[catalogue]
+# Les signatures de VOS fonctions, montrées au modèle avant qu'il écrive du
+# code. Le mode d'échec numéro un d'un petit modèle sur un dépôt qu'il ne
+# connaît pas n'est pas la syntaxe, c'est l'INVENTION D'API : il écrit
+# `normalize_weights()`, qui n'existe pas. Donnez-lui la signature, il ne
+# peut plus l'inventer de travers.
+#
+# Lu par AST, jamais par import : aucun effet de bord, et pas besoin que les
+# dépendances du dépôt soient installées.
+active = true
+# racine = "~/projets/CalculRisque_Mark5"   # à défaut, le premier dossier de l'atelier
+entrees_rendues = 15    # combien de signatures au plus dans le contexte
+caracteres_max = 3000   # et leur taille totale : un 7B ne digère pas tout le dépôt
+privees = false         # true = inclure les fonctions commençant par _
+tests = false           # true = inclure les tests (ils captent les recherches pour rien)
+
 [connaissances]
 # Ce qu'elle a lu : vos documents indexés, et vos tours de conversation. La
 # recherche se fait par le SENS, pas par les mots — « combien on a perdu au
