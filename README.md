@@ -66,13 +66,34 @@ pip install -e ".[dev,reload]"
 python main.py --text --llm mock
 ```
 
-**Le modèle de langage.** Installez [Ollama](https://ollama.com/download), puis :
+**Le modèle de langage.** Ollama s'installe *hors* de l'environnement Python —
+c'est un service Windows, pas un paquet pip :
 
 ```powershell
+winget install --id Ollama.Ollama
+#  ou le programme d'installation : https://ollama.com/download/windows
+```
+
+**Fermez puis rouvrez PowerShell**, sans quoi la commande reste introuvable :
+le `PATH` d'un terminal déjà ouvert n'est pas mis à jour par l'installation.
+`ollama : The term 'ollama' is not recognized` veut dire l'un ou l'autre —
+pas installé, ou terminal pas rouvert.
+
+```powershell
+ollama --version                           # doit répondre
 pip install -e ".[llm-ollama]"
-ollama pull qwen2.5:7b-instruct-q4_K_M
+ollama pull qwen2.5:7b-instruct-q4_K_M     # ~4,7 Go, une fois
+ollama pull nomic-embed-text               # 274 Mo, pour la recherche par le sens
 python main.py --text
 ```
+
+Pas de `ollama serve` à lancer sous Windows : l'installateur enregistre le
+service, qui démarre tout seul et vit dans la zone de notification. Le lancer
+à la main donnerait « Only one usage of each socket address ». C'est sous
+Linux qu'il faut parfois le démarrer soi-même.
+
+En attendant, `python main.py --text --llm mock` fonctionne : l'étage
+déterministe appelle les compétences, seule la conversation libre manque.
 
 **La voix.** `sounddevice` embarque PortAudio dans ses roues Windows : rien à
 installer à côté.
@@ -118,7 +139,12 @@ python main.py --text --llm mock
 curl -fsSL https://ollama.com/install.sh | sh
 pip install -e ".[llm-ollama]"
 ollama pull qwen2.5:3b-instruct-q4_K_M     # 1,5b si vous avez 2 Go de RAM
+ollama pull nomic-embed-text               # 274 Mo, pour la recherche par le sens
 ```
+
+Le script d'installation pose un service systemd et le démarre. S'il ne
+répond pas — `systemctl status ollama` —, `ollama serve` dans un autre
+terminal fait l'affaire le temps d'un essai.
 
 **La voix et l'écoute.**
 
