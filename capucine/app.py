@@ -303,6 +303,14 @@ def build_listener(
     else:
         assistant.wake = wake
 
+    if assistant.wake is not None and assistant.corpus is not None and not assistant.corpus.actif:
+        # Le corpus ne sert que s'il tourne pendant les vrais éveils : on le
+        # dit une fois au démarrage plutôt que de laisser découvrir l'option.
+        logger.info(
+            "Corpus d'éveil éteint. Pour qu'elle apprenne VOTRE voix (et vos "
+            "faux déclenchements) : [corpus] actif = true."
+        )
+
     endpointer = Endpointer(
         assistant.vad,
         threshold=float(config.get("vad.threshold", 0.5)),

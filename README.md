@@ -183,6 +183,11 @@ un décodeur qui n'a le droit de reconnaître que « capucine » et rien d'autre
 donc rapide et peu gourmand. Ce n'est pas une panne, c'est un état normal du
 projet.
 
+Conséquence pour le corpus d'éveil : `entrainer_capucine.py corpus` marche
+dès maintenant (il ne fait que ranger des fichiers), mais `seuil` réclame un
+modèle openWakeWord installé — il n'a donc pas pu être exécuté de bout en
+bout ici, faute de modèle « capucine » à mesurer.
+
 ## Utilisation
 
 ```bash
