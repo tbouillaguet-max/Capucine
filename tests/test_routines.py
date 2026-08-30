@@ -42,6 +42,16 @@ def banc(tmp_path: Path):
     contrat.set_registre(None)
     contrat.set_dossier_des_plugins(None)
     contrat.set_journal(None)
+    contrat.set_model_access(None)
+
+
+def _modele_qui_repond(reponse: str):
+    """Un faux modèle local : une seule réponse, quels que soient les arguments."""
+
+    def _fonction(prompt, *, system="", max_tokens=512, temperature=0.2, json_schema=None):
+        return reponse
+
+    return _fonction
 
 
 def _faire(banc, *appels: tuple[str, dict]) -> None:
@@ -265,6 +275,184 @@ def test_une_etape_qui_demande_confirmation_arrete_la_routine(banc) -> None:
     assert resultat.ok
     assert "confirmation demandée" in resultat.display
     assert "routine interrompue" in resultat.display
+
+
+# --- l'apprendre en la décrivant ---------------------------------------------
+
+def test_composer_ecrit_une_routine_a_partir_d_une_description(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond('[{"competence": "heure", "arguments": {}}]'))
+    resultat = banc["registre"].call(
+        "composer_une_capacite", {"nom": "mon reveil", "description": "donne l'heure"}
+    )
+    assert resultat.ok, resultat.speak
+    fichier = banc["dossier"] / "routine_reveil.py"
+    assert fichier.exists()
+    assert '("heure", {})' in fichier.read_text(encoding="utf-8")
+
+    banc["registre"].load_all()
+    assert banc["registre"].call("reveil").speak.startswith("Il est ")
+
+
+def test_composer_refuse_un_nom_de_competence_invente(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond('[{"competence": "tout_savoir", "arguments": {}}]'))
+    resultat = banc["registre"].call(
+        "composer_une_capacite", {"nom": "impossible", "description": "sais tout"}
+    )
+    assert not resultat.ok
+    assert "tout_savoir" in resultat.speak
+    assert not list(banc["dossier"].glob("routine_*.py"))
+
+
+def test_composer_refuse_une_reponse_qui_n_est_pas_du_json(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond("je ne sais pas répondre en JSON"))
+    resultat = banc["registre"].call(
+        "composer_une_capacite", {"nom": "confus", "description": "n'importe quoi"}
+    )
+    assert not resultat.ok
+
+
+def test_composer_refuse_une_liste_vide(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond("[]"))
+    resultat = banc["registre"].call(
+        "composer_une_capacite", {"nom": "rien", "description": "quelque chose d'impossible"}
+    )
+    assert not resultat.ok
+    assert "Aucune compétence existante" in resultat.speak
+
+
+def test_composer_n_offre_jamais_les_competences_internes(banc) -> None:
+    # Le catalogue envoyé au modèle ne doit jamais s'auto-désigner : une
+    # capacité qui se composerait elle-même serait un serpent qui se mord
+    # la queue.
+    catalogues: list[str] = []
+
+    def _capture(prompt, *, system="", max_tokens=512, temperature=0.2, json_schema=None):
+        catalogues.append(prompt)
+        return "[]"
+
+    contrat.set_model_access(_capture)
+    banc["registre"].call("composer_une_capacite", {"nom": "x", "description": "n'importe quoi"})
+    assert "composer_une_capacite" not in catalogues[0]
+    assert "retenir_cette_routine" not in catalogues[0]
+
+
+# --- en demander une neuve : proposer, relire, activer ou jeter --------------
+
+CODE_PROPOSE = '''"""Convertit un montant en une autre devise, à un taux fixe."""
+
+from capucine.plugin import skill
+
+
+@skill(description="Convertit un montant en euros.", examples=["convertis 10 dollars"])
+def convertir_devises(montant: float) -> str:
+    return f"{montant} convertis."
+'''
+
+CODE_RISQUE = '''"""Un plugin qui n'a rien à faire de ce côté-ci d'une relecture humaine."""
+
+import subprocess
+
+from capucine.plugin import skill
+
+
+@skill(description="Lance une commande.", examples=["lance ça"])
+def dangereux() -> str:
+    subprocess.run(["rm", "-rf", "/"])
+    return "fait"
+'''
+
+
+def test_proposer_ecrit_a_l_ecart_de_plugins(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond(CODE_PROPOSE))
+    resultat = banc["registre"].call(
+        "proposer_une_capacite",
+        {"nom": "convertisseur", "description": "convertit des devises"},
+    )
+    assert resultat.ok, resultat.speak
+    # Rien de neuf dans plugins/ : le surveillant ne doit rien voir passer.
+    assert not (banc["dossier"] / "convertisseur.py").exists()
+    assert "convertisseur" not in banc["registre"].plugins
+
+    proposition = banc["registre"].call("mes_propositions")
+    assert "convertisseur" in proposition.speak
+
+
+def test_proposer_refuse_un_code_qui_ne_compile_pas(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond("ceci n'est pas du python valide ("))
+    resultat = banc["registre"].call(
+        "proposer_une_capacite", {"nom": "casse", "description": "n'importe quoi"}
+    )
+    assert not resultat.ok
+
+
+def test_activer_installe_la_proposition_relue(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond(CODE_PROPOSE))
+    banc["registre"].call(
+        "proposer_une_capacite",
+        {"nom": "convertisseur", "description": "convertit des devises"},
+    )
+
+    demande = banc["registre"].call("activer_la_capacite_proposee", {"nom": "convertisseur"})
+    assert demande.needs_confirmation
+
+    resultat = banc["registre"].call(
+        "activer_la_capacite_proposee", {"nom": "convertisseur"}, confirmed=True
+    )
+    assert resultat.ok
+    assert (banc["dossier"] / "convertisseur.py").exists()
+
+    banc["registre"].load_all()
+    assert "convertir_devises" in banc["registre"].skills
+
+
+def test_activer_refuse_un_code_a_jetons_risques(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond(CODE_RISQUE))
+    banc["registre"].call(
+        "proposer_une_capacite", {"nom": "dangereux", "description": "n'importe quoi"}
+    )
+    resultat = banc["registre"].call(
+        "activer_la_capacite_proposee", {"nom": "dangereux"}, confirmed=True
+    )
+    assert not resultat.ok
+    assert "subprocess" in resultat.speak
+    assert not (banc["dossier"] / "dangereux.py").exists()
+
+
+def test_activer_sauvegarde_le_fichier_remplace(banc) -> None:
+    (banc["dossier"] / "convertisseur.py").write_text("# un plugin déjà là\n", encoding="utf-8")
+    banc["registre"].load_all()
+
+    contrat.set_model_access(_modele_qui_repond(CODE_PROPOSE))
+    banc["registre"].call(
+        "proposer_une_capacite",
+        {"nom": "convertisseur", "description": "convertit des devises"},
+    )
+    banc["registre"].call(
+        "activer_la_capacite_proposee", {"nom": "convertisseur"}, confirmed=True
+    )
+
+    sauvegardes = list(banc["dossier"].glob("convertisseur.py.*.sauvegarde"))
+    assert len(sauvegardes) == 1
+    assert sauvegardes[0].read_text(encoding="utf-8") == "# un plugin déjà là\n"
+
+
+def test_activer_une_proposition_absente_est_refuse(banc) -> None:
+    resultat = banc["registre"].call(
+        "activer_la_capacite_proposee", {"nom": "jamais proposée"}, confirmed=True
+    )
+    assert not resultat.ok
+    assert "Je n'ai pas de proposition" in resultat.speak
+
+
+def test_rejeter_une_proposition_l_efface(banc) -> None:
+    contrat.set_model_access(_modele_qui_repond(CODE_PROPOSE))
+    banc["registre"].call(
+        "proposer_une_capacite",
+        {"nom": "convertisseur", "description": "convertit des devises"},
+    )
+    resultat = banc["registre"].call("rejeter_la_proposition", {"nom": "convertisseur"})
+    assert resultat.ok
+    assert banc["registre"].call("mes_propositions").speak.startswith("Aucune")
 
 
 # --- le critère d'acceptation, version routine -------------------------------

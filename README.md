@@ -334,7 +334,7 @@ Et des plugins d'**introspection** :
 |---|---|
 | `apprentissage.py` | Montrer ce qu'elle a retenu de votre façon de parler, dicter un mot à son vocabulaire, tout lui faire oublier. |
 | `connaissances.py` | Interroger ce qu'elle a lu — vos documents, vos conversations — et répondre en citant d'où ça vient. |
-| `routines.py` | Retenir un enchaînement que vous venez de faire, et **s'écrire le plugin correspondant**. |
+| `routines.py` | Retenir, composer ou se faire écrire une capacité, et **s'écrire le plugin correspondant**. |
 | `capacites.py` | Lister ses capacités en listant `plugins/` — pas l'atelier, qui reste fermé par défaut. |
 
 ---
@@ -506,7 +506,7 @@ audio, et un plugin qu'elle s'écrit.
 | **Votre vocabulaire** | vos noms propres sont soufflés à la transcription | idem |
 | **Votre voix** | les extraits d'éveil sont gardés et étiquetés tout seuls | [Ce qu'elle apprend de votre voix](#ce-quelle-apprend-de-votre-voix) |
 | **Vos documents** | indexés, cherchés par le sens, cités quand elle répond | [Ce qu'elle a lu](#ce-quelle-a-lu--vos-documents-interrogeables) |
-| **Vos enchaînements** | montrés une fois, elle en écrit un plugin | [Les routines](#les-routines--elle-écrit-son-propre-plugin) |
+| **Vos enchaînements** | montrés, décrits ou demandés en langage libre, elle en écrit un plugin | [Les routines](#les-routines--elle-écrit-son-propre-plugin) |
 
 Chacun se coupe séparément dans la configuration, et deux d'entre eux — le
 corpus sonore et l'index des documents — sont explicitement encadrés parce
@@ -694,15 +694,42 @@ toucher au cœur » — ici, c'est Capucine qui dépose le fichier, et elle pass
 par exactement le même chemin que vous : écriture atomique, surveillance,
 rechargement à chaud.
 
-Deux choses qu'elle ne fait **pas**, délibérément :
+Trois façons d'y arriver, avec des garanties différentes :
 
-- **Le modèle n'écrit pas ce fichier.** Le code sort d'un gabarit fixe ; du
-  journal ne viennent que des noms de compétences existantes et des arguments
-  passés par `json.dumps`. Un plugin généré ne peut contenir que des appels à
-  ce que vous venez de faire — jamais du code inventé.
-- **Elle ne contourne aucune confirmation.** Une étape déclarée `confirm=`
-  arrête la routine au lieu de s'exécuter en passant : on ne désarme pas une
-  garde en l'enrobant dans un enchaînement.
+| Vous dites | Ce qui se passe | Le modèle écrit du code ? |
+|---|---|---|
+| « retiens cette routine » | rejoue les derniers gestes, sortis du journal | non — noms et arguments viennent de ce que vous venez de faire |
+| « crée une capacité qui donne l'heure puis mes notes » | le modèle choisit des noms *parmi les compétences déjà chargées*, sans avoir rien fait avant | non — un nom hors de cette liste fait échouer la composition entière |
+| « écris une capacité qui convertit des devises » | le modèle écrit un plugin complet, à partir de rien | oui — et c'est le seul des trois cas où c'est vrai |
+
+Les deux premières s'installent tout de suite, sans confirmation : elles ne
+peuvent produire que des appels à des compétences qui existent déjà. La
+troisième est traitée à part, avec une relecture obligatoire :
+
+```
+Vous  › écris une capacité qui convertit des devises
+Capucine › J'ai écrit une proposition pour « convertisseur ». Relisez-la, puis
+           dites « active la capacité convertisseur ».
+                    ⟶ le fichier attend dans un dossier à l'écart de plugins/ ⟵
+Vous  › active la capacité convertisseur
+Capucine › Vous l'avez relue ? Voulez-vous vraiment l'installer ?
+Vous  › oui
+Capucine › Capacité « convertisseur » installée.
+                    ⟶ plugins/convertisseur.py vient d'apparaître ⟵
+```
+
+Le fichier proposé part dans un dossier que le surveillant de `plugins/` ne
+regarde jamais : rien ne se charge tout seul. `activer_la_capacite_proposee`
+exige une confirmation à voix haute, revalide que le code compile toujours,
+et refuse net s'il y trouve un jeton hors de ce qu'un plugin est censé
+toucher (`subprocess`, `eval`, un accès réseau…) — il faut alors l'éditer à la
+main avant de retenter. `oublie la proposition <nom>` la jette sans rien
+installer.
+
+Dans les trois cas, une même règle ne bouge pas : **elle ne contourne aucune
+confirmation.** Une étape déclarée `confirm=` arrête l'enchaînement au lieu de
+s'exécuter en passant, qu'il ait été montré, décrit ou écrit par le modèle —
+on ne désarme pas une garde en l'enrobant.
 
 Le fichier produit est du Python lisible, chez vous. Ouvrez-le, changez
 l'ordre, ajoutez une étape — le rechargement à chaud prendra la nouvelle

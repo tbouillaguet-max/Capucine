@@ -537,6 +537,18 @@ def appeler_competence(nom: str, arguments: dict[str, Any] | None = None) -> Any
         _pile.appels = pile
 
 
+def competences_disponibles() -> dict[str, str]:
+    """Le nom et la description de chaque compétence actuellement chargée.
+
+    Sert à composer une capacité à partir d'une description au lieu d'un
+    geste rejoué : le modèle ne peut proposer que des noms qui figurent dans
+    ce dictionnaire, jamais en inventer un.
+    """
+    if _REGISTRE is None:
+        raise SkillRefused("Aucun registre de compétences n'est disponible.")
+    return {nom: spec.description for nom, spec in _REGISTRE.skills.items()}
+
+
 def set_dossier_des_plugins(chemin: Any) -> None:
     """Branche le dossier où déposer un plugin écrit par Capucine elle-même."""
     global _DOSSIER_PLUGINS
