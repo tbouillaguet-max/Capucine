@@ -302,6 +302,7 @@ Et un plugin d'**introspection** :
 |---|---|
 | `apprentissage.py` | Montrer ce qu'elle a retenu de votre façon de parler, dicter un mot à son vocabulaire, tout lui faire oublier. |
 | `connaissances.py` | Interroger ce qu'elle a lu — vos documents, vos conversations — et répondre en citant d'où ça vient. |
+| `routines.py` | Retenir un enchaînement que vous venez de faire, et **s'écrire le plugin correspondant**. |
 
 ---
 
@@ -457,6 +458,28 @@ hors-ligne. Trois moteurs :
 Elle annonce qu'elle va sur le réseau plutôt que de le faire en silence, et
 hors-ligne elle le dit au lieu de planter.
 
+### Comment elle apprend — les six mécanismes
+
+Aucun ne réentraîne un modèle de langage, et c'est un choix plutôt qu'un
+renoncement : affiner un 7B demanderait des heures de GPU et des milliers
+d'exemples que personne n'a, pour un gain que ceux-là obtiennent dès le
+deuxième tour. Tout tient dans le SQLite de la mémoire, quelques fichiers
+audio, et un plugin qu'elle s'écrit.
+
+| Ce qui s'apprend | Comment | Où c'est décrit |
+|---|---|---|
+| **Vos formulations** | l'étage déterministe rate, le modèle tranche juste, la phrase est retenue | [Ce qu'elle apprend de vous](#ce-quelle-apprend-de-vous) |
+| **Vos corrections** | « non, je voulais dire… » désapprend le faux et apprend le juste | idem |
+| **Votre vocabulaire** | vos noms propres sont soufflés à la transcription | idem |
+| **Votre voix** | les extraits d'éveil sont gardés et étiquetés tout seuls | [Ce qu'elle apprend de votre voix](#ce-quelle-apprend-de-votre-voix) |
+| **Vos documents** | indexés, cherchés par le sens, cités quand elle répond | [Ce qu'elle a lu](#ce-quelle-a-lu--vos-documents-interrogeables) |
+| **Vos enchaînements** | montrés une fois, elle en écrit un plugin | [Les routines](#les-routines--elle-écrit-son-propre-plugin) |
+
+Chacun se coupe séparément dans la configuration, et deux d'entre eux — le
+corpus sonore et l'index des documents — sont explicitement encadrés parce
+qu'ils touchent à ce que vous lui confiez.
+
+
 ### Ce qu'elle a lu — vos documents, interrogeables
 
 ```
@@ -537,6 +560,74 @@ Les garde-fous comptent autant que les mécanismes :
 Chaque mécanisme se coupe séparément dans `[apprentissage]`, et
 `active = false` les coupe tous.
 
+### Ce qu'elle apprend de votre voix
+
+Le modèle « capucine » livré est entraîné sur des voix de synthèse
+françaises. Il marche, mais il ne connaît ni votre timbre, ni votre débit, ni
+l'acoustique de votre pièce — et c'est précisément ce qui sépare un mot
+d'éveil qui répond du premier coup d'un qu'il faut répéter.
+
+Allumé, le corpus garde les deux secondes qui **précèdent** chaque
+déclenchement, et les étiquette tout seul d'après ce qui suit :
+
+| Ce qui se passe après l'éveil | Étiquette | Pourquoi c'est précieux |
+|---|---|---|
+| un énoncé transcrit | **vrai positif** | votre voix, votre pièce, votre micro |
+| rien du tout | **faux positif** | la télévision l'a réveillée : ces exemples-là ne s'inventent pas en studio |
+
+```
+python tools/entrainer_capucine.py seuil     # mesure VOTRE seuil au lieu de le deviner
+python tools/entrainer_capucine.py corpus    # verse les extraits dans le jeu d'entraînement
+```
+
+`seuil` passe le modèle courant sur vos propres enregistrements et balaie les
+valeurs : à chacune, combien d'éveils reconnus, combien de déclenchements
+pour rien. Un faux déclenchement coupe la parole, un éveil manqué se rattrape
+en répétant — le conseil pénalise donc le premier trois fois plus.
+
+**Éteint par défaut, et ce n'est pas un oubli** (`[corpus] actif = true`) :
+écrire du son sur un disque est une décision qui vous appartient. Allumé,
+seule la fenêtre du mot d'éveil est gardée — jamais ce que vous dites
+ensuite, garanti par deux méthodes distinctes dans le code plutôt que par une
+intention — et le nombre de fichiers est borné.
+
+### Les routines : elle écrit son propre plugin
+
+```
+Vous  › quelle heure est-il
+Capucine › Il est sept heures dix.
+Vous  › mes notes
+Capucine › Vous avez deux notes…
+Vous  › retiens cette routine, elle s'appelle mon matin
+Capucine › C'est retenu. Dites « matin » et je referai : heure, puis mes notes.
+                    ⟶ plugins/routine_matin.py vient d'apparaître ⟵
+Vous  › matin
+Capucine › Il est sept heures onze. Vous avez deux notes…
+```
+
+C'est **le critère d'acceptation du projet retourné comme un gant**. « Déposer
+un fichier dans `plugins/` ajoute une capacité, sans redémarrer et sans
+toucher au cœur » — ici, c'est Capucine qui dépose le fichier, et elle passe
+par exactement le même chemin que vous : écriture atomique, surveillance,
+rechargement à chaud.
+
+Deux choses qu'elle ne fait **pas**, délibérément :
+
+- **Le modèle n'écrit pas ce fichier.** Le code sort d'un gabarit fixe ; du
+  journal ne viennent que des noms de compétences existantes et des arguments
+  passés par `json.dumps`. Un plugin généré ne peut contenir que des appels à
+  ce que vous venez de faire — jamais du code inventé.
+- **Elle ne contourne aucune confirmation.** Une étape déclarée `confirm=`
+  arrête la routine au lieu de s'exécuter en passant : on ne désarme pas une
+  garde en l'enrobant dans un enchaînement.
+
+Le fichier produit est du Python lisible, chez vous. Ouvrez-le, changez
+l'ordre, ajoutez une étape — le rechargement à chaud prendra la nouvelle
+version. Supprimez-le et la routine disparaît. Et parce qu'une compétence peut
+désormais en appeler une autre, la profondeur est bornée et une routine qui se
+rappellerait elle-même est arrêtée net, en le disant.
+
+
 ## Architecture
 
 ```
@@ -560,6 +651,8 @@ capucine/
     ├── memoire.py          historique et faits durables (SQLite)
     ├── apprentissage.py    formulations, corrections, vocabulaire (SQLite)
     ├── semantique.py       index des documents lus, recherche par le sens
+    ├── corpus.py           les extraits d'éveil gardés pour réapprendre votre voix
+    ├── journal.py          les derniers gestes, pour apprendre une routine
     ├── atelier.py          la frontière entre Capucine et vos fichiers
     ├── listener.py         le fil qui tient le micro, du début à la fin
     ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
@@ -580,7 +673,7 @@ capucine/
         ├── tts/            piper, silent
         ├── vad/            silero (onnxruntime), énergie, scripted
         └── wake/           openwakeword, vosk, scripted
-tools/entrainer_capucine.py entraînement du modèle de mot d'éveil
+tools/entrainer_capucine.py entraînement du mot d'éveil, et mesure du seuil
 plugins/                    ← LE dossier
 config/                     default.toml, pc.toml, pi.toml, persona.txt
 ```

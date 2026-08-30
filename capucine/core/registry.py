@@ -51,9 +51,11 @@ from .plugin import (
     PluginContext,
     SkillDeclaration,
     SkillSpec,
+    adopter_la_pile,
     build_skill_spec,
     clear_context,
     config_defaults,
+    pile_d_appels,
     register_context,
 )
 from .schema import coerce_arguments
@@ -177,14 +179,22 @@ def run_with_timeout(
 ) -> Any:
     """Exécute ``func`` dans un thread démon et abandonne au bout de ``timeout``.
 
+    La pile d'appels du fil appelant est recopiée dans le thread : c'est ce
+    qui permet au garde-fou de ``appeler_competence`` de voir une récursion.
+
     Le thread est démon pour qu'un plugin bloqué n'empêche jamais Capucine de
     s'arrêter. On attrape ``BaseException`` : un ``sys.exit()`` dans un plugin
     lève ``SystemExit``, qui n'hérite pas de ``Exception`` et tuerait le
     processus sans cette précaution.
     """
     outcome: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+    # La pile des compétences en cours voyage avec l'appel : sans elle, une
+    # routine qui s'appelle elle-même remplirait la machine de threads, le
+    # garde-fou étant aveugle de l'autre côté du saut de fil.
+    pile = pile_d_appels()
 
     def target() -> None:
+        adopter_la_pile(pile)
         try:
             if inspect.iscoroutinefunction(func):
                 import asyncio

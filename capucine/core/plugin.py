@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +53,16 @@ __all__ = [
     "set_apprentissage",
     "connaissances",
     "set_connaissances",
+    "corpus",
+    "set_corpus",
+    "journal",
+    "set_journal",
+    "appeler_competence",
+    "set_registre",
+    "dossier_des_plugins",
+    "set_dossier_des_plugins",
+    "pile_d_appels",
+    "adopter_la_pile",
     "register_context",
     "clear_context",
     "contexte_de",
@@ -329,6 +340,14 @@ _MEMOIRE: Any = None
 _CONVERSATION: Any = None
 _APPRENTISSAGE: Any = None
 _CONNAISSANCES: Any = None
+_CORPUS: Any = None
+_REGISTRE: Any = None
+_JOURNAL: Any = None
+_DOSSIER_PLUGINS: Any = None
+# Profondeur d'imbrication autorisée quand une compétence en appelle une
+# autre. Trois suffit à composer des routines ; au-delà, c'est une boucle.
+PROFONDEUR_MAX = 3
+_pile = threading.local()
 
 
 def set_model_access(fonction: Callable[..., str] | None) -> None:
@@ -425,6 +444,118 @@ def connaissances() -> Any:
             "L'index des connaissances est désactivé (connaissances.active = false)."
         )
     return _CONNAISSANCES
+
+
+def set_corpus(instance: Any) -> None:
+    """Branche le corpus d'éveil — les extraits gardés autour des détections."""
+    global _CORPUS
+    _CORPUS = instance
+
+
+def corpus() -> Any:
+    """Le corpus d'éveil, allumé ou non.
+
+    Contrairement aux autres ressources, il est rendu même éteint : une
+    compétence doit pouvoir expliquer comment l'allumer plutôt que de refuser
+    sans rien dire.
+    """
+    if _CORPUS is None:
+        raise SkillRefused(
+            "Le corpus d'éveil n'existe pas dans cette configuration "
+            "(section [corpus] absente)."
+        )
+    return _CORPUS
+
+
+def set_journal(instance: Any) -> None:
+    """Branche le journal des compétences appelées."""
+    global _JOURNAL
+    _JOURNAL = instance
+
+
+def journal() -> Any:
+    """Les dernières compétences exécutées — de quoi apprendre une routine."""
+    if _JOURNAL is None:
+        raise SkillRefused("Le journal des appels n'est pas disponible.")
+    return _JOURNAL
+
+
+def set_registre(instance: Any) -> None:
+    """Branche le registre, pour qu'une compétence puisse en appeler une autre."""
+    global _REGISTRE
+    _REGISTRE = instance
+
+
+def pile_d_appels() -> list[str]:
+    """Les compétences actuellement empilées sur ce fil d'exécution."""
+    return list(getattr(_pile, "appels", None) or [])
+
+
+def adopter_la_pile(pile: list[str]) -> None:
+    """Reprend la pile d'un autre fil.
+
+    Le registre exécute chaque compétence dans un thread neuf : sans ce
+    passage de témoin, la pile serait vide à l'intérieur et le garde-fou de
+    récursion ne verrait jamais rien.
+    """
+    _pile.appels = list(pile)
+
+
+def appeler_competence(nom: str, arguments: dict[str, Any] | None = None) -> Any:
+    """Exécute une autre compétence et rend son ``SkillResult``.
+
+    C'est ce qui rend les routines possibles : un plugin qui enchaîne
+    « l'heure, puis mes notes, puis l'état du système » sans réimplémenter
+    aucun des trois.
+
+    Deux garde-fous, parce qu'ouvrir cette porte est délicat :
+
+    * **La profondeur est bornée.** Une compétence qui s'appelle elle-même,
+      directement ou par une chaîne de routines, est arrêtée avant de remplir
+      la pile — et le refus est dit à voix haute plutôt que de faire tomber
+      Capucine.
+    * **La confirmation n'est jamais contournée.** Une compétence déclarée
+      ``confirm=`` rend sa demande telle quelle : une routine ne peut pas
+      effacer vos notes en passant.
+    """
+    if _REGISTRE is None:
+        raise SkillRefused("Aucun registre de compétences n'est disponible.")
+    pile: list[str] = getattr(_pile, "appels", None) or []
+    if len(pile) >= PROFONDEUR_MAX:
+        raise SkillRefused(
+            f"Trop d'appels imbriqués ({' → '.join([*pile, nom])}). "
+            "Une routine ne peut pas en enchaîner indéfiniment d'autres."
+        )
+    if nom in pile:
+        raise SkillRefused(
+            f"« {nom} » s'appelle elle-même ({' → '.join([*pile, nom])})."
+        )
+    _pile.appels = [*pile, nom]
+    try:
+        return _REGISTRE.call(nom, arguments or {})
+    finally:
+        _pile.appels = pile
+
+
+def set_dossier_des_plugins(chemin: Any) -> None:
+    """Branche le dossier où déposer un plugin écrit par Capucine elle-même."""
+    global _DOSSIER_PLUGINS
+    _DOSSIER_PLUGINS = Path(chemin) if chemin is not None else None
+
+
+def dossier_des_plugins() -> Path:
+    """Le dossier ``plugins/`` surveillé, pour qu'elle puisse s'y écrire.
+
+    C'est la contrainte numéro un du projet retournée comme un gant : ajouter
+    une capacité, c'est déposer un fichier ici — y compris quand c'est
+    Capucine qui le dépose.
+    """
+    if _DOSSIER_PLUGINS is None or not _DOSSIER_PLUGINS.is_dir():
+        raise SkillRefused(
+            "Je ne sais pas où écrire un plugin : aucun dossier de plugins "
+            "accessible en écriture."
+        )
+    return _DOSSIER_PLUGINS
 
 
 def set_conversation(instance: Any) -> None:

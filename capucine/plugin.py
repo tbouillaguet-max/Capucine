@@ -14,13 +14,17 @@ from .core.errors import SkillRefused
 from .core.plugin import (
     SkillSpec,
     announce,
+    appeler_competence,
     apprentissage,
     atelier,
     connaissances,
     conversation,
+    corpus,
     data_dir,
     demander_au_modele,
+    dossier_des_plugins,
     get_config,
+    journal,
     memoire,
     skill,
 )
@@ -38,6 +42,10 @@ __all__ = [
     "conversation",
     "apprentissage",
     "connaissances",
+    "corpus",
+    "journal",
+    "appeler_competence",
+    "dossier_des_plugins",
     "SkillSpec",
     "SkillRefused",
 ]

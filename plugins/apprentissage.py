@@ -6,7 +6,7 @@ corriger, oublier. Une mémoire qu'on ne peut pas inspecter est une mémoire à
 laquelle on ne peut pas faire confiance.
 """
 
-from capucine.plugin import apprentissage, get_config, skill
+from capucine.plugin import apprentissage, corpus, get_config, skill
 
 CONFIG_DEFAULTS = {
     "exemples_montres": 6,
@@ -116,3 +116,57 @@ def oublier_l_apprentissage(sujet: str = "") -> str:
     if not phrases and not mots:
         return f"Je n'avais rien appris sur « {sujet} »."
     return f"Oublié : {phrases} formulation(s) et {mots} mot(s)."
+
+
+# --- le corpus d'éveil : apprendre votre voix -------------------------------
+
+@skill(
+    description="Dit combien d'extraits d'éveil Capucine a gardés pour réapprendre votre voix.",
+    examples=[
+        "où en est ton corpus d'éveil",
+        "combien de fois tu t'es réveillée pour rien",
+        "état de tes enregistrements d'éveil",
+    ],
+)
+def mon_corpus_d_eveil() -> dict:
+    """Le décompte des vrais et faux déclenchements enregistrés."""
+    magasin = corpus()
+    if not magasin.actif:
+        return {
+            "speak": "Je ne garde aucun extrait sonore. Pour que j'apprenne votre "
+                     "voix, mettez « actif = true » dans la section corpus.",
+            "display": "corpus d'éveil éteint — [corpus] actif = false\n"
+                       f"Il écrirait dans : {magasin.dossier}",
+        }
+
+    etat = magasin.etat()
+    if not etat.total:
+        return {
+            "speak": "Je n'ai encore gardé aucun extrait d'éveil.",
+            "display": f"corpus vide — {etat.dossier}",
+        }
+    return {
+        "speak": f"J'ai gardé {etat.eveils} éveil{'s' if etat.eveils > 1 else ''} "
+                 f"et {etat.faux_positifs} déclenchement"
+                 f"{'s' if etat.faux_positifs > 1 else ''} pour rien.",
+        "display": (
+            f"{etat.eveils} vrais éveils\n"
+            f"{etat.faux_positifs} faux positifs "
+            f"({etat.taux_de_faux_positifs:.0%} des déclenchements)\n"
+            f"{etat.en_attente} en attente d'étiquetage\n"
+            f"dossier : {etat.dossier}\n\n"
+            "Pour réentraîner : python tools/entrainer_capucine.py entrainer "
+            "--corpus " + str(etat.dossier)
+        ),
+    }
+
+
+@skill(
+    description="Efface les extraits sonores gardés autour des éveils.",
+    examples=["efface tes enregistrements d'éveil", "vide ton corpus d'éveil"],
+    confirm="Voulez-vous vraiment que j'efface les extraits sonores d'éveil ?",
+)
+def oublier_le_corpus() -> str:
+    """Supprime tous les extraits, vrais positifs comme faux."""
+    nombre = corpus().tout_oublier()
+    return f"J'ai effacé {nombre} extrait(s) sonore(s)."

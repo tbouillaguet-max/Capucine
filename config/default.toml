@@ -46,6 +46,21 @@ vocabulaire = true      # souffler vos noms propres à Whisper
 phrases_par_competence = 12
 mots_vocabulaire = 40
 
+[corpus]
+# Le corpus d'éveil : les deux secondes de son qui précèdent chaque
+# déclenchement de « Capucine », gardées pour réentraîner le modèle sur VOTRE
+# voix — et surtout sur vos faux déclenchements, qui ne s'inventent pas en
+# studio. Voir tools/entrainer_capucine.py.
+#
+# ÉTEINT PAR DÉFAUT, et ce n'est pas un oubli : écrire du son sur un disque
+# est une décision qui vous appartient. Allumé, seule la fenêtre du mot
+# d'éveil est gardée — jamais ce que vous dites ensuite.
+actif = false
+dossier = "~/.capucine/corpus"
+secondes_avant = 1.6
+secondes_apres = 0.4
+maximum_par_classe = 300   # au-delà, les plus anciens extraits sont effacés
+
 [connaissances]
 # Ce qu'elle a lu : vos documents indexés, et vos tours de conversation. La
 # recherche se fait par le SENS, pas par les mots — « combien on a perdu au

@@ -96,6 +96,8 @@ class Pipeline:
         wake_beep: bool = True,
         apprentissage: Any = None,
         connaissances: Any = None,
+        corpus: Any = None,
+        journal: Any = None,
     ) -> None:
         self.registry = registry
         self.router = router
@@ -111,6 +113,13 @@ class Pipeline:
         self.wake_beep = wake_beep
         self.apprentissage = apprentissage
         self.connaissances = connaissances
+        # Le corpus d'éveil attend un verdict après chaque déclenchement :
+        # ce qui suit dit si elle a eu raison de se réveiller.
+        self.corpus = corpus
+        self._eveil_a_etiqueter = False
+        # Les derniers gestes réussis : de quoi apprendre une routine en
+        # disant « retiens ça » après les avoir faits.
+        self.journal = journal
         # Dernier tour ayant appelé un outil : ce que corrigera un éventuel
         # « non, je voulais dire… ».
         self._dernier_routage: tuple[str, str] | None = None
@@ -376,6 +385,8 @@ class Pipeline:
         result.display = skill_result.display or skill_result.speak
         self.conversation.add_tool_result(skill_result.skill, result.display)
         self._memoriser_confirmation(result)
+        if self.journal is not None and skill_result.ok and not skill_result.needs_confirmation:
+            self.journal.noter(decision.tool_call.name, decision.tool_call.arguments)
 
     async def _traiter_confirmation(
         self, result: TurnResult, telemetry: TurnTelemetry
@@ -708,6 +719,7 @@ class Pipeline:
             if evenement.kind == "wake" and evenement.wake is not None:
                 self._set_state(State.WAKE)
                 logger.info("Éveil : %s (%.2f)", evenement.wake.word, evenement.wake.score)
+                self._eveil_a_etiqueter = True
                 await self._bip()
                 listener.endpointer.max_wait_s = self.max_utterance_s
                 listener.set_mode(ListenMode.UTTERANCE)
@@ -729,6 +741,9 @@ class Pipeline:
             if not enonce:
                 # Fini, mais rien d'exploitable : silence, ou bruit trop bref.
                 logger.debug("Énoncé sans contenu (%s).", enonce.reason.value)
+                # Réveillée pour rien : c'est l'exemple négatif le plus
+                # précieux qui soit, et il ne s'invente pas en studio.
+                self._etiqueter_l_eveil(bon=False)
                 listener.set_mode(mode_repos)
                 self._set_state(State.IDLE)
                 continue
@@ -745,10 +760,12 @@ class Pipeline:
 
         if not transcription:
             logger.info("Rien de transcrit (%.2f s captées).", enonce.audio.duration_s)
+            self._etiqueter_l_eveil(bon=False)
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
             return
 
+        self._etiqueter_l_eveil(bon=True)
         print(f"Vous  › {transcription.text}")
         resultat = await self.handle_and_speak(transcription.text)
         for etage, valeur in telemetrie.stages.items():
@@ -768,6 +785,23 @@ class Pipeline:
         else:
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
+
+    def _etiqueter_l_eveil(self, *, bon: bool) -> None:
+        """Dit au corpus si le dernier déclenchement était justifié.
+
+        Sans rien demander à l'utilisateur : un énoncé transcrit derrière un
+        éveil vaut confirmation, un silence vaut démenti. Ne lève jamais — un
+        corpus en panne ne coûte pas un tour.
+        """
+        if not self._eveil_a_etiqueter:
+            return
+        self._eveil_a_etiqueter = False
+        if self.corpus is None:
+            return
+        try:
+            self.corpus.confirmer() if bon else self.corpus.dementir()
+        except Exception:  # pragma: no cover - le corpus ne casse jamais un tour
+            logger.exception("Étiquetage du corpus d'éveil impossible.")
 
     async def _bip(self) -> None:
         """Deux notes brèves pour dire « je t'écoute ».

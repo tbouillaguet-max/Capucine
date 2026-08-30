@@ -130,6 +130,17 @@ class OpenWakeWordEngine(WakeWordEngine):
         logger.info("Mot d'éveil détecté : %s (%.2f)", nom, score)
         return WakeEvent(word=nom, score=float(score), timestamp=maintenant)
 
+    def score(self, frame: bytes) -> float:
+        """Le score brut de la trame, sans seuil ni anti-rebond.
+
+        Sert à mesurer un seuil sur un corpus étiqueté plutôt qu'à le
+        deviner : ``tools/entrainer_capucine.py seuil``.
+        """
+        import numpy as np
+
+        scores = self._get_model().predict(np.frombuffer(frame, dtype=np.int16))
+        return float(max(scores.values())) if scores else 0.0
+
     def reset(self) -> None:
         if self._model is not None:
             self._model.reset()

@@ -6,6 +6,8 @@
     python tools/entrainer_capucine.py entrainer     # lance l'entraînement officiel
     python tools/entrainer_capucine.py installer     # copie le modèle dans models/wake/
     python tools/entrainer_capucine.py essayer a.wav # vérifie sur un enregistrement
+    python tools/entrainer_capucine.py corpus        # verse ce qu'elle a entendu chez vous
+    python tools/entrainer_capucine.py seuil         # mesure VOTRE seuil, au lieu de le deviner
 
 Une mise en garde d'emblée, pour éviter la mauvaise surprise : le chemin
 officiel d'openWakeWord repose sur une génération de données synthétiques
@@ -38,6 +40,10 @@ DOSSIER_WAKE = RACINE / "models" / "wake"
 DOSSIER_TRAVAIL = DOSSIER_WAKE / "entrainement"
 CONFIG = DOSSIER_TRAVAIL / "capucine.yaml"
 MOT = "capucine"
+# Là où Capucine dépose ce qu'elle a entendu en usage réel, quand [corpus]
+# actif = true. Ce sont les seuls exemples de VOTRE voix et de VOS faux
+# déclenchements — ceux qu'aucune synthèse ne sait produire.
+CORPUS_PAR_DEFAUT = Path.home() / ".capucine" / "corpus"
 
 # Voix françaises de Piper : plus il y en a, plus le modèle généralise.
 VOIX_FR = [
@@ -281,6 +287,133 @@ def commande_essayer(args: argparse.Namespace) -> int:
     return 0 if detections else 1
 
 
+def commande_corpus(args: argparse.Namespace) -> int:
+    """Verse les extraits collectés en usage réel dans le jeu d'entraînement.
+
+    Deux choses, et une seule est automatique — le dire franchement évite la
+    mauvaise surprise :
+
+    * les **vrais éveils** rejoignent les positifs, où le pipeline
+      d'openWakeWord les augmente comme les autres : c'est fait ici ;
+    * les **faux positifs** sont des négatifs difficiles, et openWakeWord les
+      attend sous forme de caractéristiques précalculées (un ``.npy``), pas de
+      WAV. Ils sont rangés à part, prêts pour cette étape, qui reste à faire
+      dans le carnet officiel.
+    """
+    corpus = Path(args.corpus or CORPUS_PAR_DEFAUT).expanduser()
+    if not corpus.is_dir():
+        print(f"Aucun corpus dans {corpus}.", file=sys.stderr)
+        print("Activez-le d'abord : [corpus] actif = true dans la configuration.",
+              file=sys.stderr)
+        return 2
+
+    eveils = sorted((corpus / "eveils").glob("*.wav"))
+    faux = sorted((corpus / "faux_positifs").glob("*.wav"))
+    if not eveils and not faux:
+        print(f"Corpus vide : {corpus}")
+        print("Parlez-lui quelques jours, elle le remplira toute seule.")
+        return 1
+
+    positifs = Path(args.sortie or DOSSIER_TRAVAIL / "positifs")
+    negatifs = DOSSIER_TRAVAIL / "negatifs_reels"
+    positifs.mkdir(parents=True, exist_ok=True)
+    negatifs.mkdir(parents=True, exist_ok=True)
+
+    for source in eveils:
+        shutil.copy2(source, positifs / f"reel_{source.name}")
+    for source in faux:
+        shutil.copy2(source, negatifs / source.name)
+
+    print(f"{len(eveils)} vrai(s) éveil(s) → {positifs}")
+    print(f"{len(faux)} faux positif(s) → {negatifs}")
+    if eveils:
+        print(
+            "\nLes positifs réels valent plusieurs centaines de positifs "
+            "synthétiques : ils portent votre timbre, votre débit et votre pièce."
+        )
+    if faux:
+        print(
+            f"\nLes {len(faux)} faux positifs sont le vrai trésor : un modèle de mot "
+            "d'éveil échoue presque toujours par excès de déclenchements, jamais\n"
+            "par manque de positifs. openWakeWord les veut en caractéristiques "
+            "précalculées — passez-les par openwakeword.data.compute_features\n"
+            "et pointez false_positive_validation_data_path dessus dans "
+            f"{CONFIG.name}."
+        )
+    print("\nEnsuite : python tools/entrainer_capucine.py entrainer")
+    return 0
+
+
+def commande_seuil(args: argparse.Namespace) -> int:
+    """Mesure le seuil d'éveil sur le corpus étiqueté, au lieu de le deviner.
+
+    Le seuil livré (0,5) est un compromis pour une voix moyenne dans une pièce
+    moyenne. Vous n'avez ni l'une ni l'autre. Cette commande passe le modèle
+    courant sur vos propres enregistrements et dit à partir de quelle valeur
+    il vous reconnaît sans se réveiller pour rien.
+    """
+    from capucine.core.audio import Rechunker, WavFileInput, record
+    from capucine.core.engines.wake.openwakeword import OpenWakeWordEngine
+
+    corpus = Path(args.corpus or CORPUS_PAR_DEFAUT).expanduser()
+    eveils = sorted((corpus / "eveils").glob("*.wav"))
+    faux = sorted((corpus / "faux_positifs").glob("*.wav"))
+    if not eveils:
+        print(f"Aucun vrai éveil dans {corpus / 'eveils'} : rien à mesurer.",
+              file=sys.stderr)
+        return 2
+
+    moteur = OpenWakeWordEngine(models_dir=DOSSIER_WAKE, threshold=1.1, debounce_s=0.0)
+    if not moteur.available():
+        print(f"Aucun modèle « {MOT} » dans {DOSSIER_WAKE}.", file=sys.stderr)
+        return 2
+
+    def scores_de(fichiers: list[Path]) -> list[float]:
+        resultats: list[float] = []
+        for fichier in fichiers:
+            source = WavFileInput(fichier)
+            source.start()
+            audio = record(source, max_seconds=60)
+            moteur.reset()
+            rechunker = Rechunker(moteur.frame_size)
+            maximum = 0.0
+            for trame in rechunker.push(audio.pcm):
+                maximum = max(maximum, moteur.score(trame))
+            resultats.append(maximum)
+        return resultats
+
+    positifs = scores_de(eveils)
+    negatifs = scores_de(faux)
+    print(f"{len(positifs)} vrais éveils, {len(negatifs)} faux positifs\n")
+    print(f"  éveils        : min {min(positifs):.2f}  médian "
+          f"{sorted(positifs)[len(positifs) // 2]:.2f}  max {max(positifs):.2f}")
+    if negatifs:
+        print(f"  faux positifs : min {min(negatifs):.2f}  médian "
+              f"{sorted(negatifs)[len(negatifs) // 2]:.2f}  max {max(negatifs):.2f}")
+
+    print("\n  seuil   détectés   faux déclenchements")
+    meilleur, meilleur_score = None, -1.0
+    for centieme in range(20, 96, 5):
+        seuil = centieme / 100
+        vrais = sum(1 for valeur in positifs if valeur >= seuil)
+        rates = sum(1 for valeur in negatifs if valeur >= seuil)
+        print(f"  {seuil:.2f}    {vrais:3d}/{len(positifs):<3d}    {rates:3d}/{len(negatifs) or 0:<3d}")
+        # Un éveil manqué se rattrape en répétant ; un faux déclenchement
+        # coupe la parole et fait peur. On le pénalise trois fois plus.
+        qualite = vrais / len(positifs) - 3.0 * (rates / len(negatifs) if negatifs else 0.0)
+        if qualite > meilleur_score:
+            meilleur, meilleur_score = seuil, qualite
+
+    print(f"\nSeuil conseillé sur VOTRE corpus : {meilleur:.2f}")
+    print(f"À reporter dans la configuration :\n\n  [wake]\n  threshold = {meilleur:.2f}")
+    if len(positifs) < 20:
+        print(
+            f"\n⚠ {len(positifs)} exemples seulement : le conseil est indicatif. "
+            "Reprenez cette mesure après quelques jours d'usage."
+        )
+    return 0
+
+
 def _module_present(nom: str) -> bool:
     import importlib.util
 
@@ -312,6 +445,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sortie", type=Path)
     p.add_argument("--graine", type=int, default=0)
     p.set_defaults(fonction=commande_echantillons)
+
+    p = sous.add_parser("corpus", help="verse les extraits collectés en usage réel dans le jeu")
+    p.add_argument("--corpus", type=Path, help=f"défaut : {CORPUS_PAR_DEFAUT}")
+    p.add_argument("--sortie", type=Path, help="dossier des positifs")
+    p.set_defaults(fonction=commande_corpus)
+
+    p = sous.add_parser("seuil", help="mesure le seuil d'éveil sur le corpus étiqueté")
+    p.add_argument("--corpus", type=Path, help=f"défaut : {CORPUS_PAR_DEFAUT}")
+    p.set_defaults(fonction=commande_seuil)
 
     p = sous.add_parser("entrainer", help="lance l'entraînement officiel openWakeWord")
     p.add_argument("--reprendre", action="store_true",

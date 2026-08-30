@@ -35,7 +35,7 @@ def registre_livre(tmp_path: Path):
 
 ENSEIGNANTS = {"heure", "minuteur", "notes", "systeme"}
 ASSISTANCE = {"memoire", "recherche", "fichiers", "python", "projet", "documents"}
-INTROSPECTION = {"apprentissage", "connaissances"}
+INTROSPECTION = {"apprentissage", "connaissances", "routines"}
 
 
 def test_tous_les_plugins_livres_se_chargent(registre_livre) -> None:

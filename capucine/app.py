@@ -19,6 +19,8 @@ from .core.atelier import depuis_config as atelier_depuis_config
 from .core.audio import AudioInput, AudioOutput
 from .core.config import Config
 from .core.conversation import Conversation, load_persona
+from .core.corpus import CorpusEveil
+from .core.corpus import depuis_config as corpus_depuis_config
 from .core.endpointer import BargeInDetector, Endpointer
 from .core.engines.factory import (
     build_audio_input,
@@ -35,6 +37,7 @@ from .core.interfaces.stt import STTEngine
 from .core.interfaces.tts import TTSEngine
 from .core.interfaces.vad import VADEngine
 from .core.interfaces.wake import WakeWordEngine
+from .core.journal import JournalDesAppels
 from .core.listener import BargeInMode, ListenMode, VoiceListener
 from .core.logging import get_latency_book, get_logger
 from .core.machine import conseils, decrire
@@ -46,8 +49,12 @@ from .core.plugin import (
     set_atelier,
     set_connaissances,
     set_conversation,
+    set_corpus,
+    set_dossier_des_plugins,
+    set_journal,
     set_memoire,
     set_model_access,
+    set_registre,
 )
 from .core.registry import PluginRegistry
 from .core.router import Router
@@ -78,12 +85,18 @@ class Assistant:
     atelier: Atelier | None = None
     apprentissage: Apprentissage | None = None
     connaissances: Connaissances | None = None
+    corpus: CorpusEveil | None = None
+    journal: JournalDesAppels | None = None
 
     async def aclose(self) -> None:
         if self.apprentissage is not None:
             self.apprentissage.fermer()
         if self.connaissances is not None:
             self.connaissances.fermer()
+        if self.corpus is not None:
+            # Les fenêtres qu'aucun tour n'a étiquetées ne servent à rien :
+            # on ne les garde pas « au cas où ».
+            self.corpus.oublier_les_en_attente()
         if self.memoire is not None:
             if self.conversation.session_id is not None:
                 self.memoire.fermer_session(self.conversation.session_id)
@@ -96,6 +109,10 @@ class Assistant:
         set_conversation(None)
         set_apprentissage(None)
         set_connaissances(None)
+        set_corpus(None)
+        set_journal(None)
+        set_dossier_des_plugins(None)
+        set_registre(None)
         if self.watcher is not None:
             self.watcher.stop()
         if self.listener is not None:
@@ -144,6 +161,8 @@ def build_assistant(
     # conversations. Sans vectoriseur joignable il existe quand même, en
     # mode lexical — c'est le repli, pas l'absence.
     connaissances = connaissances_depuis_config(config, build_embeddings(config))
+    corpus = corpus_depuis_config(config)
+    journal = JournalDesAppels(int(config.get("assistant.journal_des_appels", 12)))
     conversation = Conversation(
         persona=load_persona(config.resolve_path("assistant.persona_file")),
         max_turns=int(config.get("assistant.memory_turns", 6)),
@@ -166,6 +185,8 @@ def build_assistant(
     set_conversation(conversation)
     set_apprentissage(apprentissage)
     set_connaissances(connaissances)
+    set_corpus(corpus)
+    set_journal(journal)
     set_model_access(_acces_modele(engine))
 
     registry = PluginRegistry(
@@ -176,6 +197,10 @@ def build_assistant(
         data_root=config.resolve_path("plugins.data_dir"),
         quarantine_after=int(config.get("plugins.quarantine_after", 3)),
     )
+    # Une compétence peut en appeler une autre : c'est ce qui rend les
+    # routines possibles. La profondeur est bornée dans le contrat.
+    set_registre(registry)
+    set_dossier_des_plugins(next((p for p in registry.paths if p.is_dir()), None))
 
     if voice:
         stt = stt if stt is not None else build_stt(config)
@@ -198,6 +223,8 @@ def build_assistant(
         wake_beep=bool(config.get("audio.wake_beep", True)),
         apprentissage=apprentissage,
         connaissances=connaissances,
+        corpus=corpus,
+        journal=journal,
     )
 
     registry.load_all()
@@ -212,7 +239,7 @@ def build_assistant(
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
         memoire=memoire, atelier=atelier, apprentissage=apprentissage,
-        connaissances=connaissances,
+        connaissances=connaissances, corpus=corpus, journal=journal,
     )
 
 
@@ -308,6 +335,7 @@ def build_listener(
         barge_in=barge_in,
         barge_in_mode=BargeInMode(str(config.get("barge_in.mode", "voix"))),
         start_mode=ListenMode.PAUSED,
+        corpus=assistant.corpus,
     )
     return assistant.listener
 

@@ -18,6 +18,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from .audio import AudioInput, Rechunker
 from .endpointer import BargeInDetector, Endpointer, Utterance
@@ -60,6 +61,7 @@ class VoiceListener:
         barge_in: BargeInDetector | None = None,
         barge_in_mode: BargeInMode | str = BargeInMode.VOICE,
         start_mode: ListenMode = ListenMode.PAUSED,
+        corpus: Any = None,
     ) -> None:
         self.mic = mic
         self.endpointer = endpointer
@@ -67,6 +69,9 @@ class VoiceListener:
         self.wake = wake
         self.barge_in = barge_in
         self.barge_in_mode = BargeInMode(barge_in_mode)
+        # Le corpus d'éveil, s'il est allumé : il ne voit que les trames du
+        # mode « éveil » et la courte queue qui suit une détection.
+        self.corpus = corpus
 
         self._mode = ListenMode(start_mode)
         self._demande: ListenMode | None = None
@@ -162,6 +167,8 @@ class VoiceListener:
     def _traiter_eveil(self, frame: bytes) -> None:
         if self.wake is None or self._rechunk_eveil is None:
             return
+        if self.corpus is not None:
+            self.corpus.alimenter(frame)
         for tranche in self._rechunk_eveil.push(frame):
             try:
                 evenement = self.wake.process(tranche)
@@ -173,10 +180,17 @@ class VoiceListener:
                 # On se met en pause : c'est au consommateur de décider de la
                 # suite. Sans cela, la même détection ressortirait en rafale.
                 self._mode = ListenMode.PAUSED
+                if self.corpus is not None:
+                    self.corpus.declencher(evenement.score)
                 self._emettre(ListenerEvent("wake", wake=evenement))
                 return
 
     def _traiter_enonce(self, frame: bytes) -> None:
+        if self.corpus is not None:
+            # `completer`, pas `alimenter` : la fin du mot d'éveil est encore
+            # devant nous, mais ce que dit l'utilisateur ne doit jamais
+            # entrer dans le corpus.
+            self.corpus.completer(frame)
         for tranche in self._rechunk_vad.push(frame):
             try:
                 enonce = self.endpointer.push(tranche)
