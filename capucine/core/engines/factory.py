@@ -23,6 +23,7 @@ from ..audio import (
     WavFileOutput,
 )
 from ..errors import ConfigError, EngineUnavailable
+from ..interfaces.embeddings import EmbeddingEngine
 from ..interfaces.llm import LLMEngine
 from ..interfaces.stt import STTEngine
 from ..interfaces.tts import TTSEngine
@@ -56,6 +57,12 @@ VAD_ENGINES: dict[str, tuple[str, str]] = {
     "energie": ("capucine.core.engines.vad.energy", "EnergyVAD"),
     "energy": ("capucine.core.engines.vad.energy", "EnergyVAD"),
     "scripted": ("capucine.core.engines.vad.scripted", "ScriptedVAD"),
+}
+
+EMBEDDING_ENGINES: dict[str, tuple[str, str]] = {
+    "ollama": ("capucine.core.engines.embeddings.ollama", "OllamaEmbeddings"),
+    "llamacpp": ("capucine.core.engines.embeddings.llamacpp", "LlamaCppEmbeddings"),
+    "hachage": ("capucine.core.engines.embeddings.hachage", "HachageEmbeddings"),
 }
 
 WAKE_ENGINES: dict[str, tuple[str, str]] = {
@@ -104,6 +111,45 @@ def build_llm(config: Any) -> LLMEngine:
         )
         return _instantiate(LLM_ENGINES, "LLM", "mock", {})
     logger.info("Moteur LLM : %s", engine.describe())
+    return engine
+
+
+def build_embeddings(config: Any) -> EmbeddingEngine | None:
+    """Construit le vectoriseur décrit par ``[connaissances]``.
+
+    ``None`` est une réponse normale, pas un échec : sans vectoriseur, la
+    recherche dans les documents se rabat sur le plein texte. Le défaut
+    ``auto`` essaie Ollama et se tait s'il n'est pas là — plutôt que de
+    tomber sur le repli par hachage, qui donnerait l'illusion d'une recherche
+    par le sens là où il n'y a qu'une comparaison de mots.
+    """
+    section = dict(config.section("connaissances"))
+    if not bool(section.pop("active", True)):
+        return None
+    name = str(section.pop("engine", "auto"))
+    for cle in ("fichier", "taille_fragment", "recouvrement", "passages_rendus",
+                "indexer_les_conversations", "fragments_max", "passages_max_caracteres"):
+        section.pop(cle, None)
+
+    automatique = name == "auto"
+    if automatique:
+        name = "ollama"
+    if name in ("aucun", "none", ""):
+        return None
+    try:
+        engine = _instantiate(EMBEDDING_ENGINES, "plongements", name, section)
+    except (ConfigError, EngineUnavailable) as exc:
+        logger.warning("%s", exc)
+        return None
+    if not engine.available():
+        niveau = logger.info if automatique else logger.warning
+        niveau(
+            "Vectoriseur « %s » indisponible : la recherche dans vos documents "
+            "restera lexicale. Pour la recherche par le sens : ollama pull %s",
+            engine.describe(), getattr(engine, "model", "nomic-embed-text"),
+        )
+        return None
+    logger.info("Vectoriseur : %s", engine.describe())
     return engine
 
 

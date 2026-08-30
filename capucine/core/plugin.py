@@ -50,6 +50,8 @@ __all__ = [
     "set_conversation",
     "apprentissage",
     "set_apprentissage",
+    "connaissances",
+    "set_connaissances",
     "register_context",
     "clear_context",
     "contexte_de",
@@ -326,6 +328,7 @@ _ATELIER: Any = None
 _MEMOIRE: Any = None
 _CONVERSATION: Any = None
 _APPRENTISSAGE: Any = None
+_CONNAISSANCES: Any = None
 
 
 def set_model_access(fonction: Callable[..., str] | None) -> None:
@@ -402,6 +405,26 @@ def apprentissage() -> Any:
             "L'apprentissage est désactivé (apprentissage.active = false)."
         )
     return _APPRENTISSAGE
+
+
+def set_connaissances(instance: Any) -> None:
+    """Branche l'index sémantique des documents et des conversations."""
+    global _CONNAISSANCES
+    _CONNAISSANCES = instance
+
+
+def connaissances() -> Any:
+    """L'index de ce que Capucine a lu : documents indexés, tours passés.
+
+    Un plugin y dépose du texte (``indexer``) et y pose des questions
+    (``chercher``, ``contexte``). Sans vectoriseur, la recherche se rabat sur
+    le plein texte : le plugin n'a pas à s'en soucier.
+    """
+    if _CONNAISSANCES is None:
+        raise SkillRefused(
+            "L'index des connaissances est désactivé (connaissances.active = false)."
+        )
+    return _CONNAISSANCES
 
 
 def set_conversation(instance: Any) -> None:

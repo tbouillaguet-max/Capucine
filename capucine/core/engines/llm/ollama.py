@@ -25,7 +25,12 @@ logger = get_logger("llm.ollama")
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0", ""}
 
 
-def _assert_local(host: str) -> None:
+def exiger_hote_local(host: str) -> None:
+    """Refuse tout hôte qui n'est pas cette machine.
+
+    Public parce que le moteur de plongements applique exactement la même
+    règle : vectoriser un document, c'est en envoyer le contenu au moteur.
+    """
     parsed = urlparse(host if "//" in host else f"http://{host}")
     hostname = (parsed.hostname or "").lower()
     if hostname not in _LOOPBACK_HOSTS:
@@ -48,7 +53,7 @@ class OllamaLLM(LLMEngine):
         timeout: float = 60.0,
         **_ignored: Any,
     ) -> None:
-        _assert_local(host)
+        exiger_hote_local(host)
         self.model = model
         self.host = host
         self.temperature = temperature

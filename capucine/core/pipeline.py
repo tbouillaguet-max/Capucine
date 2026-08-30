@@ -95,6 +95,7 @@ class Pipeline:
         follow_up_s: float = 8.0,
         wake_beep: bool = True,
         apprentissage: Any = None,
+        connaissances: Any = None,
     ) -> None:
         self.registry = registry
         self.router = router
@@ -109,6 +110,7 @@ class Pipeline:
         self.follow_up_s = follow_up_s
         self.wake_beep = wake_beep
         self.apprentissage = apprentissage
+        self.connaissances = connaissances
         # Dernier tour ayant appelé un outil : ce que corrigera un éventuel
         # « non, je voulais dire… ».
         self._dernier_routage: tuple[str, str] | None = None
@@ -438,6 +440,23 @@ class Pipeline:
             return None
         return self._dernier_routage
 
+    def _indexer_le_tour(self, result: TurnResult) -> None:
+        """Confie le tour à l'index sémantique, qui le vectorise en fond.
+
+        Hors du chemin chaud, et sans jamais lever : un index en panne ne doit
+        pas coûter une réponse.
+        """
+        if self.connaissances is None or not result.display:
+            return
+        try:
+            session = getattr(self.conversation, "session_id", None)
+            self.connaissances.indexer_le_tour(
+                f"conversation {session}" if session else "conversation",
+                result.utterance, result.display,
+            )
+        except Exception:  # pragma: no cover - indexer ne casse jamais un tour
+            logger.exception("Mise en file du tour pour indexation impossible.")
+
     def _apprendre_du_tour(
         self,
         result: TurnResult,
@@ -445,6 +464,7 @@ class Pipeline:
         a_corriger: tuple[str, str] | None,
     ) -> None:
         """Retient ce que ce tour a appris. Ne fait jamais échouer un tour."""
+        self._indexer_le_tour(result)
         if self.apprentissage is None:
             return
         try:

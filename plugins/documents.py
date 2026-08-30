@@ -20,6 +20,7 @@ from pathlib import Path
 from capucine.plugin import (
     SkillRefused,
     atelier,
+    connaissances,
     demander_au_modele,
     get_config,
     get_logger,
@@ -389,4 +390,106 @@ def chercher_dans_documents(texte: str, motif: str = "*") -> dict:
             + ", ".join(noms[:4]) + "."
         ),
         "display": "\n".join(trouvailles),
+    }
+
+
+# --- indexation : mettre un document dans ce qu'elle sait --------------------
+
+@skill(
+    description="Indexe un document pour pouvoir l'interroger plus tard par le sens.",
+    examples=[
+        "indexe ce rapport",
+        "apprends ce document",
+        "ajoute ce pdf à tes connaissances",
+    ],
+    timeout=300.0,
+)
+def indexer_document(chemin: str, forcer: bool = False) -> dict:
+    """Découpe un document, le vectorise et le range dans l'index.
+
+    Args:
+        chemin: Le document à indexer, relatif à l'atelier.
+        forcer: Réindexe même si le fichier n'a pas changé depuis la dernière fois.
+    """
+    cible = _ouvrir(chemin)
+    reference = str(cible)
+    index = connaissances()
+    empreinte = index.empreinte(cible)
+    if not forcer and index.deja_indexe(reference, empreinte):
+        return {
+            "speak": f"{cible.name} est déjà indexé, et il n'a pas changé.",
+            "display": f"{reference} — inchangé, rien à refaire",
+        }
+
+    texte = extraire(cible)
+    if not texte.strip():
+        raise SkillRefused(f"{cible.name} ne contient aucun texte extractible.")
+    fragments = index.indexer(reference, texte, source="document", empreinte=empreinte)
+    mode = "par le sens" if index.vectoriel else "en plein texte (aucun vectoriseur)"
+    return {
+        "speak": f"{cible.name} est indexé, en {fragments} morceaux. "
+                 f"Vous pouvez m'interroger dessus.",
+        "display": f"{reference}\n{fragments} fragments · recherche {mode} · {index.modele}",
+    }
+
+
+@skill(
+    description="Indexe tous les documents d'un dossier pour pouvoir les interroger.",
+    examples=[
+        "indexe tout le dossier des rapports",
+        "apprends tous mes documents",
+        "indexe mes fichiers word",
+    ],
+    timeout=1800.0,
+)
+def indexer_le_dossier(dossier: str = ".", motif: str = "*") -> dict:
+    """Indexe chaque document lisible d'un dossier, en sautant les inchangés.
+
+    Args:
+        dossier: Le dossier à parcourir, relatif à l'atelier.
+        motif: Filtre de nom, par exemple « *.pdf ». « **/*.pdf » descend
+            aussi dans les sous-dossiers. Par défaut, le dossier seul.
+    """
+    index = connaissances()
+    entrees = [
+        entree for entree in atelier().lister(dossier, motif)
+        if entree.is_file() and entree.suffix.lower() in EXTENSIONS
+    ]
+    if not entrees:
+        raise SkillRefused(
+            f"Aucun document lisible dans « {dossier} » avec le motif « {motif} »."
+        )
+
+    indexes, sautes, fragments = 0, 0, 0
+    echecs: list[str] = []
+    for entree in entrees:
+        reference = str(entree)
+        empreinte = index.empreinte(entree)
+        if index.deja_indexe(reference, empreinte):
+            sautes += 1
+            continue
+        try:
+            texte = extraire(entree)
+        except SkillRefused as refus:
+            echecs.append(f"{entree.name} : {refus}")
+            continue
+        except Exception as erreur:  # un fichier abîmé n'arrête pas les autres
+            echecs.append(f"{entree.name} : {erreur}")
+            get_logger().warning("Indexation de %s impossible : %s", entree.name, erreur)
+            continue
+        if not texte.strip():
+            echecs.append(f"{entree.name} : aucun texte extractible")
+            continue
+        fragments += index.indexer(reference, texte, source="document", empreinte=empreinte)
+        indexes += 1
+
+    lignes = [
+        f"{indexes} document(s) indexé(s), {fragments} fragment(s)",
+        f"{sautes} inchangé(s), sauté(s)",
+    ]
+    lignes.extend(f"⚠ {echec}" for echec in echecs)
+    return {
+        "speak": f"J'ai indexé {indexes} document{'s' if indexes > 1 else ''}"
+                 + (f", et sauté {sautes} inchangé{'s' if sautes > 1 else ''}." if sautes else "."),
+        "display": "\n".join(lignes),
     }

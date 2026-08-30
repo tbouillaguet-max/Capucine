@@ -46,6 +46,24 @@ vocabulaire = true      # souffler vos noms propres à Whisper
 phrases_par_competence = 12
 mots_vocabulaire = 40
 
+[connaissances]
+# Ce qu'elle a lu : vos documents indexés, et vos tours de conversation. La
+# recherche se fait par le SENS, pas par les mots — « combien on a perdu au
+# premier trimestre » retrouve « la perte de Q1 s'élève à ».
+#
+# Les vecteurs vivent dans le même fichier SQLite que la mémoire. Aucune base
+# vectorielle à installer, aucun service à tenir en vie.
+active = true
+engine = "auto"         # auto (Ollama s'il est là) | ollama | llamacpp | hachage | aucun
+model = "nomic-embed-text"       # 274 Mo : ollama pull nomic-embed-text
+host = "http://127.0.0.1:11434"  # bouclage obligatoire, comme pour le dialogue
+# model_path = "~/.capucine/models/nomic-embed-text-v1.5.Q4_K_M.gguf"  # engine = "llamacpp"
+taille_fragment = 900   # caractères par fragment indexé
+recouvrement = 150      # pour qu'une réponse à cheval sur deux fragments survive
+passages_rendus = 5     # combien de passages sont montrés au modèle
+indexer_les_conversations = true   # chaque tour rejoint l'index, en tâche de fond
+fragments_max = 50000   # au-delà, le balayage traîne : elle le dit au lieu de ralentir
+
 [atelier]
 # Les dossiers que Capucine a le droit de lire et d'écrire.
 #

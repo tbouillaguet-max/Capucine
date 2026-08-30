@@ -16,6 +16,7 @@ from .core.plugin import (
     announce,
     apprentissage,
     atelier,
+    connaissances,
     conversation,
     data_dir,
     demander_au_modele,
@@ -36,6 +37,7 @@ __all__ = [
     "memoire",
     "conversation",
     "apprentissage",
+    "connaissances",
     "SkillSpec",
     "SkillRefused",
 ]

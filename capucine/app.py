@@ -23,6 +23,7 @@ from .core.endpointer import BargeInDetector, Endpointer
 from .core.engines.factory import (
     build_audio_input,
     build_audio_output,
+    build_embeddings,
     build_llm,
     build_stt,
     build_tts,
@@ -43,12 +44,15 @@ from .core.pipeline import Pipeline
 from .core.plugin import (
     set_apprentissage,
     set_atelier,
+    set_connaissances,
     set_conversation,
     set_memoire,
     set_model_access,
 )
 from .core.registry import PluginRegistry
 from .core.router import Router
+from .core.semantique import Connaissances
+from .core.semantique import depuis_config as connaissances_depuis_config
 from .core.watcher import PluginWatcher
 
 logger = get_logger("app")
@@ -73,10 +77,13 @@ class Assistant:
     memoire: Memoire | None = None
     atelier: Atelier | None = None
     apprentissage: Apprentissage | None = None
+    connaissances: Connaissances | None = None
 
     async def aclose(self) -> None:
         if self.apprentissage is not None:
             self.apprentissage.fermer()
+        if self.connaissances is not None:
+            self.connaissances.fermer()
         if self.memoire is not None:
             if self.conversation.session_id is not None:
                 self.memoire.fermer_session(self.conversation.session_id)
@@ -88,6 +95,7 @@ class Assistant:
         set_memoire(None)
         set_conversation(None)
         set_apprentissage(None)
+        set_connaissances(None)
         if self.watcher is not None:
             self.watcher.stop()
         if self.listener is not None:
@@ -132,6 +140,10 @@ def build_assistant(
     )
 
     memoire = memoire_depuis_config(config)
+    # L'index sémantique : ce qu'elle a lu de vos documents et retenu de vos
+    # conversations. Sans vectoriseur joignable il existe quand même, en
+    # mode lexical — c'est le repli, pas l'absence.
+    connaissances = connaissances_depuis_config(config, build_embeddings(config))
     conversation = Conversation(
         persona=load_persona(config.resolve_path("assistant.persona_file")),
         max_turns=int(config.get("assistant.memory_turns", 6)),
@@ -153,6 +165,7 @@ def build_assistant(
     set_memoire(memoire)
     set_conversation(conversation)
     set_apprentissage(apprentissage)
+    set_connaissances(connaissances)
     set_model_access(_acces_modele(engine))
 
     registry = PluginRegistry(
@@ -184,6 +197,7 @@ def build_assistant(
         follow_up_s=float(config.get("assistant.follow_up_seconds", 8.0)),
         wake_beep=bool(config.get("audio.wake_beep", True)),
         apprentissage=apprentissage,
+        connaissances=connaissances,
     )
 
     registry.load_all()
@@ -198,6 +212,7 @@ def build_assistant(
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
         memoire=memoire, atelier=atelier, apprentissage=apprentissage,
+        connaissances=connaissances,
     )
 
 

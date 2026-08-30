@@ -293,7 +293,7 @@ Six plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `recherche.py` | Chercher sur le web et lire une page. **Le seul plugin qui sort de la machine.** |
 | `fichiers.py` | Lister, lire, chercher, compléter, écrire, déplacer, jeter — dans un périmètre que vous ouvrez. |
 | `python.py` | Exécuter du Python, lancer un script, écrire du code avec le modèle local, l'expliquer. |
-| `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers. |
+| `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers, **indexer**. |
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
 
 Et un plugin d'**introspection** :
@@ -301,6 +301,7 @@ Et un plugin d'**introspection** :
 | Fichier | Ce qu'elle sait faire |
 |---|---|
 | `apprentissage.py` | Montrer ce qu'elle a retenu de votre façon de parler, dicter un mot à son vocabulaire, tout lui faire oublier. |
+| `connaissances.py` | Interroger ce qu'elle a lu — vos documents, vos conversations — et répondre en citant d'où ça vient. |
 
 ---
 
@@ -456,6 +457,45 @@ hors-ligne. Trois moteurs :
 Elle annonce qu'elle va sur le réseau plutôt que de le faire en silence, et
 hors-ligne elle le dit au lieu de planter.
 
+### Ce qu'elle a lu — vos documents, interrogeables
+
+```
+Vous  › indexe tout le dossier des rapports
+Capucine › J'ai indexé 14 documents, et sauté 3 inchangés.
+Vous  › d'après mes documents, combien on a perdu au premier trimestre
+Capucine › Une perte de douze mille quatre cents euros, d'après le rapport Q1.
+                                        ⟶ affiché ⟵
+                       Sources :
+                       · rapport_q1.docx  (proximité 0.81)
+                       · budget_2026.xlsx — feuille Synthèse  (proximité 0.64)
+```
+
+Elle ne cherche pas des mots, elle cherche du **sens** : « combien on a perdu
+au premier trimestre » retrouve « la perte de Q1 s'élève à », sans un mot en
+commun. Puis elle répond à partir des passages retrouvés — et les nomme, ce
+qui permet de vérifier.
+
+Trois refus assumés dans cette conception :
+
+- **Rien ne sort de la machine.** Le vectoriseur est local (Ollama en
+  bouclage, l'hôte est validé comme pour le dialogue) : vectoriser un
+  document, c'est en envoyer le contenu au moteur.
+- **Aucune dépendance nouvelle.** Les vecteurs sont des BLOB dans le SQLite
+  de la mémoire. Pas de base vectorielle à installer, pas de service à tenir
+  en vie. La recherche est un balayage : mesuré ici, 171 ms pour 5 000
+  fragments en Python pur, 11 ms si numpy est là. Au-delà de
+  `fragments_max`, elle le dit au lieu de ralentir en silence.
+- **Sans modèle de plongement, ça marche quand même** — en plein texte (FTS5).
+  Moins fin, jamais absent, et elle annonce sur quel mode elle tourne au lieu
+  de laisser croire à une recherche par le sens.
+
+Pour la recherche par le sens : `ollama pull nomic-embed-text` (274 Mo). Elle
+indexe aussi **ses propres conversations**, au fil des tours, dans un fil de
+fond : ce que vous lui avez dit la semaine dernière redevient trouvable.
+Réindexer un dossier ne refait que les fichiers modifiés, et changer de modèle
+de plongement invalide l'index — deux espaces vectoriels ne se comparent pas.
+
+
 ### Ce qu'elle apprend de vous
 
 ```
@@ -519,6 +559,7 @@ capucine/
     ├── pipeline.py         machine à états (asyncio)
     ├── memoire.py          historique et faits durables (SQLite)
     ├── apprentissage.py    formulations, corrections, vocabulaire (SQLite)
+    ├── semantique.py       index des documents lus, recherche par le sens
     ├── atelier.py          la frontière entre Capucine et vos fichiers
     ├── listener.py         le fil qui tient le micro, du début à la fin
     ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
@@ -534,6 +575,7 @@ capucine/
     ├── interfaces/         ABC seulement, aucune dépendance lourde
     └── engines/            implémentations, importées paresseusement
         ├── llm/            mock, ollama, llamacpp
+        ├── embeddings/     ollama, llamacpp, hachage (repli sans modèle)
         ├── stt/            faster-whisper, vosk, scripted
         ├── tts/            piper, silent
         ├── vad/            silero (onnxruntime), énergie, scripted
