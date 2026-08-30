@@ -41,7 +41,7 @@ from .logging import TurnTelemetry, get_logger
 from .plugin import set_announcer
 from .registry import PluginRegistry, SkillResult
 from .router import RouteDecision, Router
-from .text import accord_ou_refus, stream_sentences
+from .text import accord_ou_refus, est_une_correction, stream_sentences
 
 logger = get_logger("pipeline")
 
@@ -94,6 +94,7 @@ class Pipeline:
         echo: bool = True,
         follow_up_s: float = 8.0,
         wake_beep: bool = True,
+        apprentissage: Any = None,
     ) -> None:
         self.registry = registry
         self.router = router
@@ -107,6 +108,12 @@ class Pipeline:
         self.echo = echo
         self.follow_up_s = follow_up_s
         self.wake_beep = wake_beep
+        self.apprentissage = apprentissage
+        # Dernier tour ayant appelé un outil : ce que corrigera un éventuel
+        # « non, je voulais dire… ».
+        self._dernier_routage: tuple[str, str] | None = None
+        # L'amorce d'origine, à laquelle s'ajoute le vocabulaire appris.
+        self._amorce_stt = getattr(stt, "initial_prompt", "") or ""
 
         self._speak = speak
         self._on_state = on_state
@@ -229,8 +236,24 @@ class Pipeline:
         if self.stt is None or not audio:
             return Transcription("")
         self._set_state(State.TRANSCRIBE)
+        self._souffler_le_vocabulaire()
         with telemetry.stage("transcription_ms"):
             return await asyncio.to_thread(self.stt.transcribe, audio)
+
+    def _souffler_le_vocabulaire(self) -> None:
+        """Ajoute le vocabulaire appris à l'amorce de Whisper.
+
+        Sans cela « CalculRisque » devient « calcul risque » à chaque fois — et
+        la commande qui en dépend rate à chaque fois.
+        """
+        if self.apprentissage is None or self.stt is None:
+            return
+        if not hasattr(self.stt, "initial_prompt"):
+            return
+        try:
+            self.stt.initial_prompt = self.apprentissage.amorce_stt(self._amorce_stt)
+        except Exception:  # pragma: no cover
+            logger.debug("Amorce de transcription inchangée.", exc_info=True)
 
     # -- parole -------------------------------------------------------------
     async def say(self, text: str) -> bool:
@@ -406,6 +429,57 @@ class Pipeline:
         logger.info("En attente d'une confirmation pour « %s ».", skill_result.skill)
         return True
 
+    # -- apprentissage ------------------------------------------------------
+    def _preparer_correction(self, utterance: str) -> tuple[str, str] | None:
+        """Le tour précédent est-il en train d'être corrigé ?"""
+        if self.apprentissage is None or not self.apprentissage.corrections_actives:
+            return None
+        if self._dernier_routage is None or not est_une_correction(utterance):
+            return None
+        return self._dernier_routage
+
+    def _apprendre_du_tour(
+        self,
+        result: TurnResult,
+        decision: RouteDecision,
+        a_corriger: tuple[str, str] | None,
+    ) -> None:
+        """Retient ce que ce tour a appris. Ne fait jamais échouer un tour."""
+        if self.apprentissage is None:
+            return
+        try:
+            self.apprentissage.moissonner(result.utterance)
+            if result.display:
+                self.apprentissage.moissonner(result.display, source="reponse")
+
+            outil = decision.tool_call.name if decision.tool_call else None
+            reussi = outil is not None and (
+                result.skill_result is None or result.skill_result.ok
+            )
+            if not reussi:
+                return
+
+            if a_corriger is not None:
+                # « Non, je voulais dire le minuteur » : on désapprend ce qui
+                # était faux ET on apprend ce qui était juste, sur la phrase
+                # d'origine — c'est elle qui reviendra, pas la correction.
+                phrase_initiale, ancien_outil = a_corriger
+                if ancien_outil != outil:
+                    self.apprentissage.dementir_routage(phrase_initiale, ancien_outil)
+                    self.apprentissage.apprendre_routage(phrase_initiale, outil)
+                    logger.info(
+                        "Correction retenue : « %s » %s → %s",
+                        phrase_initiale[:50], ancien_outil, outil,
+                    )
+            elif decision.tier == "llm":
+                # L'étage déterministe a raté, le modèle a tranché : la
+                # prochaine fois, l'étage déterministe saura.
+                self.apprentissage.apprendre_routage(result.utterance, outil)
+
+            self._dernier_routage = (result.utterance, outil)
+        except Exception:  # pragma: no cover - apprendre ne casse jamais un tour
+            logger.exception("Apprentissage du tour impossible.")
+
     def _echec(self, result: TurnResult, telemetry: TurnTelemetry) -> TurnResult:
         result.speak = result.display = "Je n'ai pas réussi à traiter cette demande."
         result.tier = "erreur"
@@ -425,6 +499,7 @@ class Pipeline:
         if await self._traiter_confirmation(result, telemetry):
             return result
 
+        a_corriger = self._preparer_correction(result.utterance)
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
             return self._echec(result, telemetry)
@@ -449,6 +524,7 @@ class Pipeline:
             result.speak = result.display = reponse
             self.conversation.add_assistant(reponse)
 
+        self._apprendre_du_tour(result, decision, a_corriger)
         telemetry.emit(
             etage=decision.tier,
             outil=decision.tool_call.name if decision.tool_call else "-",
@@ -474,6 +550,7 @@ class Pipeline:
             await self.say(result.speak)
             return result
 
+        a_corriger = self._preparer_correction(result.utterance)
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
             result = self._echec(result, telemetry)
@@ -520,6 +597,7 @@ class Pipeline:
             self.conversation.add_assistant(reponse)
             await self.say(reponse)
 
+        self._apprendre_du_tour(result, decision, a_corriger)
         telemetry.emit(
             etage=decision.tier,
             outil=decision.tool_call.name if decision.tool_call else "-",

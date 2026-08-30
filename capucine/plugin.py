@@ -14,6 +14,7 @@ from .core.errors import SkillRefused
 from .core.plugin import (
     SkillSpec,
     announce,
+    apprentissage,
     atelier,
     conversation,
     data_dir,
@@ -34,6 +35,7 @@ __all__ = [
     "atelier",
     "memoire",
     "conversation",
+    "apprentissage",
     "SkillSpec",
     "SkillRefused",
 ]

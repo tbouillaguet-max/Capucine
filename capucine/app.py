@@ -12,6 +12,8 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from .core.apprentissage import Apprentissage
+from .core.apprentissage import depuis_config as apprentissage_depuis_config
 from .core.atelier import Atelier
 from .core.atelier import depuis_config as atelier_depuis_config
 from .core.audio import AudioInput, AudioOutput
@@ -38,7 +40,13 @@ from .core.machine import conseils, decrire
 from .core.memoire import Memoire
 from .core.memoire import depuis_config as memoire_depuis_config
 from .core.pipeline import Pipeline
-from .core.plugin import set_atelier, set_conversation, set_memoire, set_model_access
+from .core.plugin import (
+    set_apprentissage,
+    set_atelier,
+    set_conversation,
+    set_memoire,
+    set_model_access,
+)
 from .core.registry import PluginRegistry
 from .core.router import Router
 from .core.watcher import PluginWatcher
@@ -64,8 +72,11 @@ class Assistant:
     watcher: PluginWatcher | None = None
     memoire: Memoire | None = None
     atelier: Atelier | None = None
+    apprentissage: Apprentissage | None = None
 
     async def aclose(self) -> None:
+        if self.apprentissage is not None:
+            self.apprentissage.fermer()
         if self.memoire is not None:
             if self.conversation.session_id is not None:
                 self.memoire.fermer_session(self.conversation.session_id)
@@ -76,6 +87,7 @@ class Assistant:
         set_atelier(None)
         set_memoire(None)
         set_conversation(None)
+        set_apprentissage(None)
         if self.watcher is not None:
             self.watcher.stop()
         if self.listener is not None:
@@ -108,9 +120,11 @@ def build_assistant(
     """
     engine = llm if llm is not None else build_llm(config)
 
+    apprentissage = apprentissage_depuis_config(config)
     router_options = config.section("llm").get("router", {}) or {}
     router = Router(
         engine,
+        apprentissage=apprentissage,
         direct_threshold=float(router_options.get("direct_threshold", 0.72)),
         shortlist_threshold=float(router_options.get("shortlist_threshold", 0.35)),
         shortlist_size=int(router_options.get("shortlist_size", 5)),
@@ -138,6 +152,7 @@ def build_assistant(
     set_atelier(atelier)
     set_memoire(memoire)
     set_conversation(conversation)
+    set_apprentissage(apprentissage)
     set_model_access(_acces_modele(engine))
 
     registry = PluginRegistry(
@@ -168,6 +183,7 @@ def build_assistant(
         max_utterance_s=float(config.get("vad.max_utterance_s", 20.0)),
         follow_up_s=float(config.get("assistant.follow_up_seconds", 8.0)),
         wake_beep=bool(config.get("audio.wake_beep", True)),
+        apprentissage=apprentissage,
     )
 
     registry.load_all()
@@ -181,7 +197,7 @@ def build_assistant(
         config=config, llm=engine, registry=registry, router=router,
         conversation=conversation, pipeline=pipeline,
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
-        memoire=memoire, atelier=atelier,
+        memoire=memoire, atelier=atelier, apprentissage=apprentissage,
     )
 
 

@@ -68,8 +68,12 @@ class Router:
         shortlist_size: int = 5,
         allow_number_extraction: bool = True,
         temperature: float = 0.0,
+        apprentissage: Any = None,
     ) -> None:
         self.llm = llm
+        # Ce que Capucine a retenu de vos formulations. Consulté à chaque tour,
+        # servi depuis un cache : aucun accès disque dans le chemin chaud.
+        self.apprentissage = apprentissage
         self.direct_threshold = direct_threshold
         self.shortlist_threshold = shortlist_threshold
         self.shortlist_size = shortlist_size
@@ -78,6 +82,9 @@ class Router:
 
     # -- étage 0 : déterministe --------------------------------------------
     def score_skills(self, utterance: str, skills: Mapping[str, SkillSpec]) -> list[Candidate]:
+        apprises = (
+            self.apprentissage.phrases_par_outil() if self.apprentissage is not None else {}
+        )
         candidates: list[Candidate] = []
         for name, spec in skills.items():
             if spec.quarantined:
@@ -88,6 +95,12 @@ class Router:
                 value = similarity(utterance, phrase) * _WEIGHTS["example"]
                 if value > best:
                     best, matched = value, phrase
+            # Vos propres formulations, retenues des tours précédents. Elles
+            # pèsent presque autant qu'un exemple d'auteur, jamais davantage.
+            for retenue in apprises.get(name, ()):
+                value = similarity(utterance, retenue.phrase) * retenue.poids
+                if value > best:
+                    best, matched = value, f"appris: {retenue.phrase}"
             readable = name.replace("_", " ")
             value = similarity(utterance, readable) * _WEIGHTS["name"]
             if value > best:

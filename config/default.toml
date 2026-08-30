@@ -36,6 +36,16 @@ fichier = "~/.capucine/memoire.sqlite"
 messages_repris = 12        # tours rechargés quand on reprend une conversation
 reprendre_au_demarrage = false   # true = enchaîner sur la dernière conversation
 
+[apprentissage]
+# Ce que Capucine retient de VOUS, sans jamais réentraîner un modèle : des
+# tables et des compteurs, dans le même fichier SQLite que la mémoire.
+active = true
+routage = true          # retenir vos formulations : elle route mieux avec le temps
+corrections = true      # « non, je voulais dire… » désapprend ET réapprend
+vocabulaire = true      # souffler vos noms propres à Whisper
+phrases_par_competence = 12
+mots_vocabulaire = 40
+
 [atelier]
 # Les dossiers que Capucine a le droit de lire et d'écrire.
 #

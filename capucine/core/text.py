@@ -16,6 +16,7 @@ from collections.abc import Iterable, Iterator
 
 __all__ = [
     "accord_ou_refus",
+    "est_une_correction",
     "split_sentences",
     "stream_sentences",
     "strip_accents",
@@ -349,3 +350,31 @@ def accord_ou_refus(phrase: str) -> bool | None:
     if mots <= _MOTS_REFUS:
         return False
     return None
+
+
+# --- « non, je voulais dire… » ---------------------------------------------
+
+_AMORCES_DE_CORRECTION = (
+    "non", "nan", "mais non", "pas ca", "pas cela", "je voulais dire",
+    "je disais", "je voulais", "plutot", "je te disais", "en fait",
+    "c est pas ca", "ce n est pas ca", "pas du tout", "je parlais de",
+)
+
+
+def est_une_correction(phrase: str) -> bool:
+    """La phrase corrige-t-elle ce que Capucine vient de faire ?
+
+    C'est le signal le plus riche de l'apprentissage : une correction dit à la
+    fois ce qui était faux et ce qui était juste. On la reconnaît à son amorce,
+    et seulement quand quelque chose la suit — « non » tout seul est un refus,
+    pas une correction, et il est déjà traité ailleurs.
+    """
+    normalisee = normalize(phrase)
+    if not normalisee:
+        return False
+    for amorce in _AMORCES_DE_CORRECTION:
+        if normalisee == amorce:
+            return False          # un refus sec, pas une correction
+        if normalisee.startswith(amorce + " "):
+            return True
+    return False

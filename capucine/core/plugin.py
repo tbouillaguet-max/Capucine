@@ -48,6 +48,8 @@ __all__ = [
     "set_memoire",
     "conversation",
     "set_conversation",
+    "apprentissage",
+    "set_apprentissage",
     "register_context",
     "clear_context",
     "contexte_de",
@@ -323,6 +325,7 @@ _MODELE: Callable[..., str] | None = None
 _ATELIER: Any = None
 _MEMOIRE: Any = None
 _CONVERSATION: Any = None
+_APPRENTISSAGE: Any = None
 
 
 def set_model_access(fonction: Callable[..., str] | None) -> None:
@@ -384,6 +387,21 @@ def set_memoire(instance: Any) -> None:
     """Branche la mémoire persistante."""
     global _MEMOIRE
     _MEMOIRE = instance
+
+
+def set_apprentissage(instance: Any) -> None:
+    """Branche le magasin de ce qui s'apprend au fil des tours."""
+    global _APPRENTISSAGE
+    _APPRENTISSAGE = instance
+
+
+def apprentissage() -> Any:
+    """Ce que Capucine a retenu de vos formulations et de votre vocabulaire."""
+    if _APPRENTISSAGE is None:
+        raise SkillRefused(
+            "L'apprentissage est désactivé (apprentissage.active = false)."
+        )
+    return _APPRENTISSAGE
 
 
 def set_conversation(instance: Any) -> None:

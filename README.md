@@ -285,7 +285,7 @@ Quatre plugins **pédagogiques**, documentation vivante du contrat :
 | `notes.py` | `data_dir()`, `CONFIG_DEFAULTS`, et `confirm=` sur l'effacement. |
 | `systeme.py` | Une dépendance optionnelle (`psutil`) traitée par dégradation plutôt que par échec, et du code qui diffère selon la plateforme sans que le cœur en sache rien. |
 
-Cinq plugins d'**assistance**, qui font vraiment travailler Capucine :
+Six plugins d'**assistance**, qui font vraiment travailler Capucine :
 
 | Fichier | Ce qu'elle sait faire |
 |---|---|
@@ -296,12 +296,18 @@ Cinq plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers. |
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
 
+Et un plugin d'**introspection** :
+
+| Fichier | Ce qu'elle sait faire |
+|---|---|
+| `apprentissage.py` | Montrer ce qu'elle a retenu de votre façon de parler, dicter un mot à son vocabulaire, tout lui faire oublier. |
+
 ---
 
 ## Ce qu'elle sait faire pour vous
 
-Ces cinq compétences dépassent le cadre d'un assistant vocal ordinaire. Elles
-sont donc encadrées, et il faut lire cette section avant de les ouvrir.
+Ces capacités dépassent le cadre d'un assistant vocal ordinaire. Elles sont
+donc encadrées, et il faut lire cette section avant de les ouvrir.
 
 ### La mémoire
 
@@ -450,6 +456,47 @@ hors-ligne. Trois moteurs :
 Elle annonce qu'elle va sur le réseau plutôt que de le faire en silence, et
 hors-ligne elle le dit au lieu de planter.
 
+### Ce qu'elle apprend de vous
+
+```
+Vous  › relance-moi le bazar du dépôt CalculRisque_Mark5
+Capucine › Le pipeline est parti.        (le modèle a tranché : 380 ms de réflexion)
+                       ⟶ le lendemain ⟵
+Vous  › relance-moi le bazar
+Capucine › Le pipeline est parti.        (l'étage déterministe a suffi : 4 ms)
+```
+
+Trois mécanismes, **aucun réentraînement de modèle**. C'est un choix, pas un
+renoncement : affiner un 7B demanderait des heures de GPU et des milliers
+d'exemples que personne n'a, pour un gain que ces trois-là obtiennent dès le
+deuxième tour. Tout tient dans le fichier SQLite de la mémoire.
+
+| Ce qui s'apprend | Quand | Ce que ça change |
+|---|---|---|
+| **Vos formulations** | quand l'étage déterministe rate et que le modèle tranche juste | la fois suivante, l'étage déterministe reconnaît seul — plus vite, et sans dépendre de l'humeur d'un 7B |
+| **Vos corrections** | « non, je voulais dire le minuteur » | elle **désapprend** ce qui était faux *et* apprend ce qui était juste, sur la phrase d'origine — c'est elle qui reviendra, pas la correction |
+| **Votre vocabulaire** | dès qu'un nom propre passe dans un tour | `CalculRisque_Mark5` est soufflé à Whisper, qui cesse d'entendre « calcul risque marque cinq » |
+
+Les garde-fous comptent autant que les mécanismes :
+
+- **Un tour raté n'apprend rien.** Une compétence qui échoue ou qui refuse ne
+  produit aucune formulation retenue — sinon elle apprendrait ses erreurs.
+- **Une formulation retenue ne dépasse jamais un exemple d'auteur.** Son poids
+  monte de 0,7 à 1,0 avec les confirmations, plafonné là.
+- **Une erreur se désapprend aussi vite qu'elle s'est apprise.** Un démenti de
+  plus que de confirmations, et l'association disparaît.
+- **Le vocabulaire est volontairement avare** : casse chameau, sigles, mots
+  contenant un chiffre. Un simple mot capitalisé serait trop bruyant, et un
+  faux positif dans l'amorce biaise la transcription vers des mots que vous ne
+  dites jamais.
+- **Rien n'est opaque** : « qu'est-ce que tu as appris », « quel vocabulaire tu
+  connais », « oublie ce que tu as appris sur le minuteur ». Une mémoire qu'on
+  ne peut pas inspecter est une mémoire à laquelle on ne peut pas faire
+  confiance.
+
+Chaque mécanisme se coupe séparément dans `[apprentissage]`, et
+`active = false` les coupe tous.
+
 ## Architecture
 
 ```
@@ -471,6 +518,7 @@ capucine/
 └── core/
     ├── pipeline.py         machine à états (asyncio)
     ├── memoire.py          historique et faits durables (SQLite)
+    ├── apprentissage.py    formulations, corrections, vocabulaire (SQLite)
     ├── atelier.py          la frontière entre Capucine et vos fichiers
     ├── listener.py         le fil qui tient le micro, du début à la fin
     ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
@@ -503,8 +551,9 @@ assez souvent pour casser une démonstration. Sur Pi avec un 1-3B, c'est pire.
 D'où :
 
 1. **Étage déterministe** — score entre la phrase entendue et les `examples` du
-   décorateur. Latence nulle, aucun modèle sollicité. « Lance un dé à vingt
-   faces » est résolu ici, `faces=20` compris.
+   décorateur, **plus vos propres formulations retenues** des tours précédents.
+   Latence nulle, aucun modèle sollicité. « Lance un dé à vingt faces » est
+   résolu ici, `faces=20` compris.
 2. **Étage LLM, en deux passes contraintes** — d'abord le *nom* de l'outil,
    contraint par une énumération : un nom halluciné devient structurellement
    impossible. Puis les *arguments*, contraints par le schéma réel de l'outil
