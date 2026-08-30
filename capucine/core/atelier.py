@@ -40,6 +40,21 @@ MOTIFS_INTERDITS = (
 )
 DOSSIERS_INTERDITS = (".ssh", ".gnupg", ".aws", ".config/gcloud")
 
+# Formats que l'atelier écrit en texte UTF-8 détruirait. La liste sert au cas
+# où le fichier n'existe pas encore ; quand il existe, c'est son contenu qui
+# tranche, ce qui est bien plus sûr qu'une extension.
+EXTENSIONS_BINAIRES = frozenset({
+    ".xlsx", ".xlsm", ".xlsb", ".xls", ".docx", ".docm", ".doc", ".pptx", ".ppt",
+    ".odt", ".ods", ".odp", ".pdf", ".rtf",
+    ".zip", ".7z", ".rar", ".tar", ".gz", ".bz2", ".xz", ".whl", ".jar",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tif", ".tiff",
+    ".mp3", ".mp4", ".wav", ".ogg", ".flac", ".avi", ".mkv", ".mov",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".pyc", ".pyd", ".class",
+    ".db", ".sqlite", ".sqlite3", ".mdb", ".accdb", ".parquet", ".feather",
+    ".onnx", ".gguf", ".pt", ".pth", ".safetensors", ".npy", ".npz",
+})
+OCTETS_EXAMINES = 8192
+
 
 class AtelierError(SkillRefused, PermissionError):
     """Chemin hors de l'atelier, ou interdit. Le message dit toujours pourquoi.
@@ -124,6 +139,45 @@ class Atelier:
             )
         if chemin.is_dir():
             raise AtelierError(f"« {chemin.name} » est un dossier, pas un fichier.")
+        self._verifier_texte(chemin)
+
+    def _verifier_texte(self, chemin: Path) -> None:
+        """Refuse d'écrire du texte dans un fichier qui n'en est pas.
+
+        L'atelier écrit en UTF-8. Un ``.xlsx`` ou un ``.pdf`` réécrit ainsi
+        n'est pas modifié : il est **détruit**. La sauvegarde permettrait de
+        revenir en arrière, mais mieux vaut ne pas avoir à s'en servir.
+
+        Quand le fichier existe, c'est son contenu qui tranche — bien plus sûr
+        qu'une extension, qui ment souvent. Sinon on se rabat sur l'extension,
+        pour ne pas créer un ``.docx`` qui n'en serait pas un.
+        """
+        if chemin.exists():
+            try:
+                debut = chemin.open("rb").read(OCTETS_EXAMINES)
+            except OSError:
+                return
+            if not debut:
+                return
+            binaire = b"\x00" in debut
+            if not binaire:
+                try:
+                    debut.decode("utf-8")
+                except UnicodeDecodeError:
+                    # Une coupure au milieu d'un caractère multi-octets n'est
+                    # pas un fichier binaire : on ne juge que sur le début net.
+                    binaire = b"\x00" in debut or not _fin_de_caractere_tronquee(debut)
+            if binaire:
+                raise AtelierError(
+                    f"« {chemin.name} » n'est pas un fichier texte : l'écrire en UTF-8 "
+                    "le détruirait. Pour un document Word, Excel, PowerPoint ou PDF, "
+                    "passez par les compétences de lecture de documents."
+                )
+        elif chemin.suffix.lower() in EXTENSIONS_BINAIRES:
+            raise AtelierError(
+                f"Je ne sais pas créer un « {chemin.suffix} » : ce format n'est pas du "
+                "texte. Écrire dedans en UTF-8 produirait un fichier illisible."
+            )
 
     # -- lecture ------------------------------------------------------------
     def lire(self, chemin: str | Path) -> str:
@@ -200,6 +254,21 @@ class Atelier:
             return "aucun dossier ouvert"
         etat = "lecture seule" if self.lecture_seule else "lecture et écriture"
         return f"{', '.join(str(r) for r in self.racines)} ({etat})"
+
+
+def _fin_de_caractere_tronquee(debut: bytes) -> bool:
+    """Le décodage a-t-il échoué seulement parce qu'on a coupé un caractère ?
+
+    On relit les derniers octets : si tout passe une fois la queue retirée,
+    c'était une troncature, pas du binaire.
+    """
+    for recul in range(1, 5):
+        try:
+            debut[:-recul].decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            continue
+    return False
 
 
 def _contenu_dans(chemin: Path, racine: Path) -> bool:

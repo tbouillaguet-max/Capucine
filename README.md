@@ -293,6 +293,7 @@ Cinq plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `recherche.py` | Chercher sur le web et lire une page. **Le seul plugin qui sort de la machine.** |
 | `fichiers.py` | Lister, lire, chercher, compléter, écrire, déplacer, jeter — dans un périmètre que vous ouvrez. |
 | `python.py` | Exécuter du Python, lancer un script, écrire du code avec le modèle local, l'expliquer. |
+| `documents.py` | Ouvrir Word, Excel, PowerPoint, PDF et CSV : lire, résumer, chercher à travers. |
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
 
 ---
@@ -344,6 +345,9 @@ Ce que la frontière garantit, et qui est éprouvé par `tests/test_atelier.py` 
   accès à sa cible ;
 * les identifiants et les clés (`.env`, `*.pem`, `id_rsa`, `.ssh/`) restent
   hors de portée **même à l'intérieur** d'une racine ouverte ;
+* elle **refuse d'écrire du texte dans un fichier binaire** : un `.xlsx`
+  réécrit en UTF-8 ne serait pas modifié, il serait détruit. Le verdict porte
+  sur le contenu quand le fichier existe, sur l'extension sinon ;
 * toute réécriture laisse une sauvegarde horodatée à côté du fichier ;
 * **rien n'est supprimé** — les fichiers partent à la corbeille ;
 * écrire, déplacer, jeter, exécuter du code et lancer un projet demandent
@@ -352,6 +356,37 @@ Ce que la frontière garantit, et qui est éprouvé par `tests/test_atelier.py` 
 
 Un refus est **prononcé**, pas avalé : « ce fichier est hors de l'atelier »
 plutôt que « je n'ai pas pu exécuter cette commande ».
+
+### Les documents que l'UTF-8 ne sait pas lire
+
+Un `.docx` ou un `.xlsx` n'est pas du texte : c'est une archive de XML. Ces
+formats passent par les bibliothèques dédiées, importées **format par format**
+— un `.docx` reste lisible même si `openpyxl` manque.
+
+```bash
+pip install -e ".[documents]"
+```
+
+```
+Vous  › ouvre le rapport word
+Capucine › Rapport trimestriel de valorisation. Le multiple médian ressort à 12,4x.
+Vous  › quelles feuilles il y a dans le classeur
+Capucine › 2 feuilles : Synthèse, Détail.
+Vous  › cherche le mot médian dans mes documents
+Capucine › 2 documents : budget.xlsx, rapport.docx.
+```
+
+Ce qu'elle lit : Word (paragraphes **et** tableaux — ils portent souvent
+l'essentiel), Excel (valeurs plutôt que formules, feuille par feuille),
+PowerPoint (diapositives **et** notes du présentateur), PDF, CSV et TSV.
+
+Deux limites franches. Les anciens formats binaires `.doc`, `.xls`, `.ppt` ne
+sont pas lus — elle vous demande de réenregistrer en `.docx`. Et une formule
+qu'Excel n'a jamais calculée apparaît vide : c'est le résultat mis en cache
+qui est lu, rien ne recalcule à la place d'Excel.
+
+**Lecture seulement.** Écrire dans un document Office demande de préserver
+styles, formules et mises en page ; le faire à moitié abîmerait vos fichiers.
 
 ### Coder et exécuter
 
@@ -603,7 +638,7 @@ du matériel détecté.
 python -m pytest
 ```
 
-348 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
+370 tests, aucun modèle téléchargé, aucun périphérique audio requis. Le critère
 d'acceptation est joué en entier — vrai observateur `watchdog`, vrai fichier
 déposé pendant l'exécution. La boucle vocale — éveil, énoncé, réponse, suivi,
 barge-in — est éprouvée avec un micro en mémoire, un mot d'éveil scripté et un

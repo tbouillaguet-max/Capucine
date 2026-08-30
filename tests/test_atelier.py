@@ -183,3 +183,58 @@ def test_les_motifs_proteges_tolerent_les_separateurs_windows(tmp_path: Path) ->
     faux_chemin = Path(str(tmp_path) + "/.git/config")
     with pytest.raises(AtelierError, match="protégé"):
         espace._verifier_interdits(faux_chemin)
+
+
+# --- correctif A : ne pas détruire un fichier binaire ------------------------
+
+def test_on_n_ecrit_pas_de_texte_dans_un_fichier_binaire(tmp_path: Path) -> None:
+    # L'atelier écrit en UTF-8. Un .xlsx réécrit ainsi n'est pas modifié :
+    # il est détruit.
+    (tmp_path / "budget.xlsx").write_bytes(b"PK\x03\x04" + b"\x00" * 64)
+    espace = Atelier(racines=[tmp_path])
+    with pytest.raises(AtelierError, match="n'est pas un fichier texte"):
+        espace.ecrire("budget.xlsx", "du texte")
+    # Le fichier est intact.
+    assert (tmp_path / "budget.xlsx").read_bytes().startswith(b"PK\x03\x04")
+
+
+def test_le_verdict_porte_sur_le_contenu_pas_sur_l_extension(tmp_path: Path) -> None:
+    # Une extension ment souvent : c'est le contenu qui tranche quand le
+    # fichier existe.
+    (tmp_path / "piege.txt").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00")
+    (tmp_path / "vraiment.xlsx").write_text("en fait du texte", encoding="utf-8")
+    espace = Atelier(racines=[tmp_path])
+
+    with pytest.raises(AtelierError, match="n'est pas un fichier texte"):
+        espace.ecrire("piege.txt", "bonjour")
+    # Celui-ci est réellement du texte malgré son extension : on l'accepte.
+    espace.ecrire("vraiment.xlsx", "toujours du texte")
+
+
+def test_on_ne_cree_pas_un_document_office_en_texte(tmp_path: Path) -> None:
+    espace = Atelier(racines=[tmp_path])
+    for nom in ("rapport.docx", "budget.xlsx", "presentation.pptx", "note.pdf"):
+        with pytest.raises(AtelierError, match="pas du texte"):
+            espace.ecrire(nom, "du texte")
+
+
+def test_les_fichiers_texte_restent_ecrivables(tmp_path: Path) -> None:
+    espace = Atelier(racines=[tmp_path])
+    for nom in ("script.py", "notes.md", "donnees.csv", "config.toml", "sans_extension"):
+        espace.ecrire(nom, "contenu\n")
+        assert espace.lire(nom) == "contenu\n"
+
+
+def test_un_accent_coupe_en_fin_d_extrait_n_est_pas_du_binaire(tmp_path: Path) -> None:
+    # Le test de binarité lit les 8 premiers kilo-octets : la coupure peut
+    # tomber au milieu d'un caractère UTF-8 multi-octets.
+    (tmp_path / "long.txt").write_text("é" * 9000, encoding="utf-8")
+    espace = Atelier(racines=[tmp_path])
+    espace.ecrire("long.txt", "remplacé")   # ne doit pas lever
+    assert espace.lire("long.txt") == "remplacé"
+
+
+def test_un_fichier_vide_est_ecrivable(tmp_path: Path) -> None:
+    (tmp_path / "vide.txt").write_bytes(b"")
+    espace = Atelier(racines=[tmp_path])
+    espace.ecrire("vide.txt", "enfin du contenu")

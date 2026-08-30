@@ -40,6 +40,15 @@ wake = [
   "openwakeword>=0.6,<1",
   "onnxruntime>=1.17",
 ]
+# Documents bureautiques : Word, Excel, PowerPoint, PDF. Importés format par
+# format, donc un .docx reste lisible même sans openpyxl.
+documents = [
+  "python-docx>=1.1,<2",
+  "openpyxl>=3.1,<4",
+  "python-pptx>=1.0,<2",
+  "pypdf>=5,<7",
+]
+
 # Repli de reconnaissance et de mot d'éveil, utile sur Raspberry Pi.
 vosk = ["vosk>=0.3.45,<0.4"]
 
