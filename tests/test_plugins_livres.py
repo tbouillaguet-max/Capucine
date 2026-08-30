@@ -37,7 +37,7 @@ ENSEIGNANTS = {"heure", "minuteur", "notes", "systeme"}
 ASSISTANCE = {"memoire", "recherche", "fichiers", "python", "projet", "documents"}
 # Spécialisé sur UN projet, là où « projet » reste générique.
 SPECIALISES = {"calculrisque"}
-INTROSPECTION = {"apprentissage", "connaissances", "routines"}
+INTROSPECTION = {"apprentissage", "connaissances", "routines", "capacites"}
 
 
 def test_tous_les_plugins_livres_se_chargent(registre_livre) -> None:

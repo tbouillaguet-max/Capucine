@@ -328,13 +328,14 @@ Six plugins d'**assistance**, qui font vraiment travailler Capucine :
 | `projet.py` | Lancer un dépôt entier en tâche de fond, suivre son avancement, lire son rapport de run, jouer ses tests. |
 | `calculrisque.py` | Piloter CalculRisque_Mark5 : mises à jour, optimisations de paramètres, création de stratégies. |
 
-Et un plugin d'**introspection** :
+Et des plugins d'**introspection** :
 
 | Fichier | Ce qu'elle sait faire |
 |---|---|
 | `apprentissage.py` | Montrer ce qu'elle a retenu de votre façon de parler, dicter un mot à son vocabulaire, tout lui faire oublier. |
 | `connaissances.py` | Interroger ce qu'elle a lu — vos documents, vos conversations — et répondre en citant d'où ça vient. |
 | `routines.py` | Retenir un enchaînement que vous venez de faire, et **s'écrire le plugin correspondant**. |
+| `capacites.py` | Lister ses capacités en listant `plugins/` — pas l'atelier, qui reste fermé par défaut. |
 
 ---
 
