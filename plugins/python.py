@@ -44,6 +44,19 @@ CONSIGNE = (
     "exécutable tel quel, avec une docstring en tête et des noms explicites."
 )
 
+# La MÊME consigne moins « exécutable tel quel ». Cette formule dit au modèle
+# de ne dépendre de rien d'extérieur — l'exact contraire de ce qu'on lui
+# demande quand on lui fournit les fonctions du projet. Deux ordres contraires
+# dans un même prompt, et un 7B en choisit un : celui de l'autonomie, qui
+# semble le plus sûr. C'est ce qui rendait la référence d'API inopérante.
+CONSIGNE_AVEC_API = (
+    "Tu écris du Python 3.11 clair et court. Réponds UNIQUEMENT par du code, "
+    "sans texte autour et sans balises Markdown. Commence par les imports "
+    "nécessaires, puis la définition demandée, avec une docstring en tête et "
+    "des noms explicites. Le code s'exécute DANS le projet : tu peux et tu "
+    "dois importer ses fonctions."
+)
+
 CONSIGNE_API = (
     "Voici les fonctions RÉELLES du projet, avec leur ligne d'import et leur "
     "signature exacte. Quand l'une d'elles convient, ÉCRIS SON IMPORT en tête "
@@ -213,7 +226,7 @@ def ecrire_du_code(description: str) -> dict:
     api = _api_en_contexte(description)
     _PROPOSITION["api"] = api
     code = _nettoyer(demander_au_modele(
-        description, system=CONSIGNE + api,
+        description, system=(CONSIGNE_AVEC_API if api else CONSIGNE) + api,
         max_tokens=int(get_config("max_tokens_code", 900)), temperature=0.1,
     ))
     if not code.strip():
@@ -315,7 +328,7 @@ def coder_et_verifier(description: str, tentatives: int = 0) -> dict:
     for essai in range(1, maximum + 1):
         if essai == 1:
             code = _nettoyer(demander_au_modele(
-                description, system=CONSIGNE + api,
+                description, system=(CONSIGNE_AVEC_API if api else CONSIGNE) + api,
                 max_tokens=int(get_config("max_tokens_code", 900)), temperature=0.1,
             ))
         else:

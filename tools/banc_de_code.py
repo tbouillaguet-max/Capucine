@@ -55,6 +55,7 @@ class Resultat:
     raison: str
     secondes: float
     lignes: int
+    code: str = ""
     entrees_api: int = 0      # signatures réellement injectées dans le contexte
     caracteres_api: int = 0
 
@@ -188,7 +189,13 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
         # censée ne rien recevoir reste une énigme.
         api = proposition.get("api", "")
     del contrat
-    entrees_api = api.count("\ndef ") + api.count("\nclass ")
+    # Une entrée commence par sa ligne d'import — ou par le commentaire qui
+    # dit pourquoi il n'y en a pas. Compter « def » ne marche plus depuis que
+    # la référence est rendue en Python valide, et rendait la colonne muette.
+    entrees_api = sum(
+        1 for ligne in api.splitlines()
+        if ligne.startswith("from ") or ligne.startswith("# défini dans")
+    )
     reussi, raison = noter(code, tache, depot, delai)
     if not sortie.ok and not reussi:
         # Un délai dépassé n'est pas un échec du modèle : le distinguer évite
@@ -199,14 +206,14 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
                   if "trop de temps" in message else message[:120])
     return Resultat(tache.nom, tache.famille, reussi, raison,
                     time.perf_counter() - depart, len(code.splitlines()),
-                    entrees_api, len(api))
+                    code, entrees_api, len(api))
 
 
 # --- restitution ------------------------------------------------------------
 
 def ligne_de(resultat: Resultat) -> str:
     marque = "✓" if resultat.reussi else "✗"
-    api = f"{resultat.entrees_api}fn/{resultat.caracteres_api}c" if resultat.entrees_api else "—"
+    api = f"{resultat.entrees_api}fn/{resultat.caracteres_api}c" if resultat.caracteres_api else "—"
     return (
         f"  {marque} {resultat.tache:<18} {resultat.famille:<8} "
         f"{resultat.secondes:6.1f}s {resultat.lignes:3d}l {api:>10}  {resultat.raison[:44]}"
@@ -256,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="délai de lecture côté Ollama (s)")
     parser.add_argument("--delai-competence", type=float, default=600.0,
                         help="délai d'une compétence du banc (s)")
+    parser.add_argument("--montrer-code", action="store_true",
+                        help="affiche le code produit par les tâches ratées")
     parser.add_argument("--verbeux", action="store_true",
                         help="garde les traces du registre (bruyantes)")
     parser.add_argument("--json", type=Path, help="écrit les résultats bruts")
@@ -317,6 +326,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 lot.append(resultat)
                 print(ligne_de(resultat), flush=True)
+                if args.montrer_code and not resultat.reussi and resultat.code:
+                    # Après trois corrections à l'aveugle, la seule chose qui
+                    # tranche est ce que le modèle a RÉELLEMENT écrit.
+                    extrait = "\n".join(
+                        f"      │ {ligne}" for ligne in resultat.code.splitlines()[:25]
+                    )
+                    print(extrait, flush=True)
         finally:
             demonter(registre)
         mesures[titre] = lot
