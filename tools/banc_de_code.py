@@ -64,7 +64,10 @@ def charger_les_taches(chemin: Path) -> list[Tache]:
 
 # --- montage minimal de Capucine -------------------------------------------
 
-def monter(atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool):
+def monter(
+    atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool,
+    delai_modele: float = 300.0, delai_competence: float = 600.0,
+):
     """Un assistant réduit : le registre, l'atelier, le catalogue, le modèle.
 
     On passe par les VRAIES compétences (`ecrire_du_code`, `coder_et_verifier`)
@@ -79,15 +82,21 @@ def monter(atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool):
     from capucine.core.interfaces.llm import Message
     from capucine.core.registry import PluginRegistry
 
+    # Un banc n'est pas un tour de parole : les délais taillés pour la voix
+    # (60 s côté client Ollama, 120 s côté compétence) coupent une génération
+    # de 900 jetons sur un 7B en CPU, et la coupure ressort en « échec » alors
+    # que rien n'a échoué. On mesure le modèle, pas la patience.
     surcharges = {
         "atelier": {"racines": [str(atelier_chemin)],
                     "corbeille": str(atelier_chemin / ".corbeille_banc")},
-        "plugins": {"python": {"api_en_contexte": catalogue_actif}},
+        "plugins": {"python": {"api_en_contexte": catalogue_actif},
+                    "timeout": delai_competence},
+        "llm": {"timeout": delai_modele},
     }
     if llm:
-        surcharges["llm"] = {"engine": llm}
-        if modele:
-            surcharges["llm"]["model"] = modele
+        surcharges["llm"]["engine"] = llm
+    if modele:
+        surcharges["llm"]["model"] = modele
     config = load_config(overrides=surcharges)
 
     moteur = build_llm(config)
@@ -108,6 +117,13 @@ def monter(atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool):
         data_root=atelier_chemin / ".banc_data",
     )
     registre.load_all()
+    # `@skill(timeout=...)` est écrit en dur dans le plugin et l'emporte sur
+    # `plugins.timeout` : on le relève ici, explicitement, pour ces deux
+    # compétences seulement.
+    for nom in ("ecrire_du_code", "coder_et_verifier"):
+        specification = registre.get(nom)
+        if specification is not None:
+            specification.timeout = delai_competence
     return registre, moteur
 
 
@@ -166,25 +182,30 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
     del contrat
     reussi, raison = noter(code, tache, depot, delai)
     if not sortie.ok and not reussi:
-        raison = sortie.speak[:120]
+        # Un délai dépassé n'est pas un échec du modèle : le distinguer évite
+        # de conclure qu'une configuration est mauvaise alors qu'elle est
+        # seulement lente.
+        message = sortie.speak
+        raison = ("⏱ délai dépassé — relancez avec --delai-competence plus haut"
+                  if "trop de temps" in message else message[:120])
     return Resultat(tache.nom, tache.famille, reussi, raison,
                     time.perf_counter() - depart, len(code.splitlines()))
 
 
 # --- restitution ------------------------------------------------------------
 
-def tableau(resultats: list[Resultat], titre: str) -> str:
-    lignes = [f"── {titre} " + "─" * max(0, 58 - len(titre))]
-    for resultat in resultats:
-        marque = "✓" if resultat.reussi else "✗"
-        lignes.append(
-            f"  {marque} {resultat.tache:<18} {resultat.famille:<8} "
-            f"{resultat.secondes:5.1f}s {resultat.lignes:3d}l  {resultat.raison[:52]}"
-        )
+def ligne_de(resultat: Resultat) -> str:
+    marque = "✓" if resultat.reussi else "✗"
+    return (
+        f"  {marque} {resultat.tache:<18} {resultat.famille:<8} "
+        f"{resultat.secondes:5.1f}s {resultat.lignes:3d}l  {resultat.raison[:52]}"
+    )
+
+
+def pied(resultats: list[Resultat]) -> str:
     reussis = sum(1 for resultat in resultats if resultat.reussi)
     duree = sum(resultat.secondes for resultat in resultats)
-    lignes.append(f"  → {reussis}/{len(resultats)} réussies en {duree:.0f} s")
-    return "\n".join(lignes)
+    return f"  → {reussis}/{len(resultats)} réussies en {duree:.0f} s"
 
 
 def resume(mesures: dict[str, list[Resultat]]) -> str:
@@ -218,13 +239,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sans-boucle", action="store_true")
     parser.add_argument("--variantes", action="store_true",
                         help="mesure les quatre combinaisons catalogue × boucle")
-    parser.add_argument("--delai", type=float, default=60.0)
+    parser.add_argument("--delai", type=float, default=60.0,
+                        help="délai d'exécution du code produit (s)")
+    parser.add_argument("--delai-modele", type=float, default=300.0,
+                        help="délai de lecture côté Ollama (s)")
+    parser.add_argument("--delai-competence", type=float, default=600.0,
+                        help="délai d'une compétence du banc (s)")
+    parser.add_argument("--verbeux", action="store_true",
+                        help="garde les traces du registre (bruyantes)")
     parser.add_argument("--json", type=Path, help="écrit les résultats bruts")
     args = parser.parse_args(argv)
 
     from capucine.core.logging import setup_logging
 
     setup_logging(level="WARNING")
+    if not args.verbeux:
+        # Le banc rapporte lui-même chaque échec, avec sa raison. La trace
+        # complète du registre par-dessus noierait le tableau.
+        import logging
+
+        logging.getLogger("capucine.registre").setLevel(logging.CRITICAL)
 
     depot = args.atelier.expanduser().resolve()
     if not depot.is_dir():
@@ -251,16 +285,31 @@ def main(argv: list[str] | None = None) -> int:
 
     mesures: dict[str, list[Resultat]] = {}
     for titre, catalogue_actif, boucle in combinaisons:
-        registre, moteur = monter(depot, args.llm, args.modele, catalogue_actif)
+        registre, moteur = monter(
+            depot, args.llm, args.modele, catalogue_actif,
+            args.delai_modele, args.delai_competence,
+        )
         try:
             if titre == combinaisons[0][0]:
-                print(f"modèle : {moteur.describe()}   dépôt : {depot}\n")
-            lot = [passer_une_tache(registre, tache, depot, boucle, args.delai)
-                   for tache in taches]
+                print(f"modèle : {moteur.describe()}   dépôt : {depot}")
+                print(
+                    f"{len(taches)} tâches × {len(combinaisons)} configuration(s) — "
+                    "comptez plusieurs minutes par tâche sur un 7B en CPU.\n"
+                )
+            print(f"── {titre} " + "─" * max(0, 58 - len(titre)))
+            lot = []
+            for tache in taches:
+                # Au fil de l'eau : une minute de silence par tâche rend le
+                # banc indistinguable d'un blocage.
+                resultat = passer_une_tache(
+                    registre, tache, depot, boucle, args.delai
+                )
+                lot.append(resultat)
+                print(ligne_de(resultat), flush=True)
         finally:
             demonter(registre)
         mesures[titre] = lot
-        print(tableau(lot, titre))
+        print(pied(lot))
         print()
 
     if len(mesures) > 1:

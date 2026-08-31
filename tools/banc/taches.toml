@@ -45,9 +45,12 @@ assert trimestre('2024-12-31') == 'T4'
 [[tache]]
 nom = "poids_plafonnes"
 famille = "api"
+# Le nom de la fonction n'est JAMAIS donné dans la description : c'est tout
+# l'objet de la mesure. Une tâche « api » qui nomme sa réponse ne mesure plus
+# le catalogue, elle mesure la lecture de consigne.
 description = """Écris une fonction repartir(convictions) qui pondère un \
-dictionnaire {symbole: conviction} en plafonnant chaque poids, en utilisant \
-la fonction capped_weights du projet."""
+dictionnaire {symbole: conviction} en plafonnant chaque poids, en réutilisant \
+la fonction du projet prévue pour ça."""
 doit_appeler = ["capped_weights"]
 verification = """
 assert callable(repartir)
