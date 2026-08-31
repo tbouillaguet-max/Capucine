@@ -60,6 +60,30 @@ class Resultat:
     caracteres_api: int = 0
 
 
+def interpreteur_du_projet(depot: Path, impose: Path | None = None) -> str:
+    """Le Python qui a les dépendances DU PROJET, pas celles de Capucine.
+
+    Sans ça, un code parfaitement correct — qui importe la bonne fonction du
+    projet et l'appelle bien — est noté en échec sur un
+    « ModuleNotFoundError: No module named 'pandas' » : Capucine tourne dans
+    son environnement, le projet dans le sien. Le banc mesurerait alors la
+    coïncidence de deux installations, pas le modèle.
+
+    On repère l'environnement du dépôt par sa structure (``pyvenv.cfg``,
+    écrit par venv comme par virtualenv), et on prend son interpréteur.
+    """
+    if impose:
+        return str(impose.expanduser())
+    for candidat in sorted(depot.iterdir()) if depot.is_dir() else []:
+        if not candidat.is_dir() or not (candidat / "pyvenv.cfg").is_file():
+            continue
+        for relatif in ("Scripts/python.exe", "bin/python3", "bin/python"):
+            python = candidat / relatif
+            if python.is_file():
+                return str(python)
+    return sys.executable
+
+
 def charger_les_taches(chemin: Path) -> list[Tache]:
     donnees = tomllib.loads(chemin.read_text(encoding="utf-8"))
     return [Tache(**entree) for entree in donnees.get("tache", [])]
@@ -70,6 +94,7 @@ def charger_les_taches(chemin: Path) -> list[Tache]:
 def monter(
     atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool,
     delai_modele: float = 300.0, delai_competence: float = 600.0,
+    python: str = "",
 ):
     """Un assistant réduit : le registre, l'atelier, le catalogue, le modèle.
 
@@ -92,7 +117,8 @@ def monter(
     surcharges = {
         "atelier": {"racines": [str(atelier_chemin)],
                     "corbeille": str(atelier_chemin / ".corbeille_banc")},
-        "plugins": {"python": {"api_en_contexte": catalogue_actif},
+        "plugins": {"python": {"api_en_contexte": catalogue_actif,
+                              "interpreteur": python},
                     "timeout": delai_competence},
         "llm": {"timeout": delai_modele},
     }
@@ -142,7 +168,9 @@ def demonter(registre) -> None:
 
 # --- la notation ------------------------------------------------------------
 
-def noter(code: str, tache: Tache, depot: Path, delai: float) -> tuple[bool, str]:
+def noter(
+    code: str, tache: Tache, depot: Path, delai: float, python: str = ""
+) -> tuple[bool, str]:
     """Lance le code produit ET la vérification. Zéro, c'est réussi."""
     if not code.strip():
         return False, "aucun code produit"
@@ -155,7 +183,7 @@ def noter(code: str, tache: Tache, depot: Path, delai: float) -> tuple[bool, str
     programme = f"{code}\n\n# --- vérification ---\n{tache.verification}\n"
     try:
         resultat = subprocess.run(
-            [sys.executable, "-c", programme],
+            [python or sys.executable, "-c", programme],
             cwd=str(depot), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=delai, check=False,
         )
@@ -167,7 +195,9 @@ def noter(code: str, tache: Tache, depot: Path, delai: float) -> tuple[bool, str
     return False, derniere[-1][:120] if derniere else f"code de retour {resultat.returncode}"
 
 
-def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: float) -> Resultat:
+def passer_une_tache(
+    registre, tache: Tache, depot: Path, boucle: bool, delai: float, python: str = ""
+) -> Resultat:
     depart = time.perf_counter()
     competence = "coder_et_verifier" if boucle else "ecrire_du_code"
     try:
@@ -196,7 +226,7 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
         1 for ligne in api.splitlines()
         if ligne.startswith("from ") or ligne.startswith("# défini dans")
     )
-    reussi, raison = noter(code, tache, depot, delai)
+    reussi, raison = noter(code, tache, depot, delai, python)
     if not sortie.ok and not reussi:
         # Un délai dépassé n'est pas un échec du modèle : le distinguer évite
         # de conclure qu'une configuration est mauvaise alors qu'elle est
@@ -263,6 +293,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="délai de lecture côté Ollama (s)")
     parser.add_argument("--delai-competence", type=float, default=600.0,
                         help="délai d'une compétence du banc (s)")
+    parser.add_argument("--python", type=Path,
+                        help="interpréteur qui a les dépendances du projet "
+                             "(détecté dans le dépôt sinon)")
     parser.add_argument("--montrer-code", action="store_true",
                         help="affiche le code produit par les tâches ratées")
     parser.add_argument("--verbeux", action="store_true",
@@ -303,15 +336,18 @@ def main(argv: list[str] | None = None) -> int:
             not args.sans_catalogue, not args.sans_boucle,
         )]
 
+    python = interpreteur_du_projet(depot, args.python)
     mesures: dict[str, list[Resultat]] = {}
     for titre, catalogue_actif, boucle in combinaisons:
         registre, moteur = monter(
             depot, args.llm, args.modele, catalogue_actif,
-            args.delai_modele, args.delai_competence,
+            args.delai_modele, args.delai_competence, python,
         )
         try:
             if titre == combinaisons[0][0]:
                 print(f"modèle : {moteur.describe()}   dépôt : {depot}")
+                marque = "" if python != sys.executable else "  (celui de Capucine)"
+                print(f"python : {python}{marque}")
                 print(
                     f"{len(taches)} tâches × {len(combinaisons)} configuration(s) — "
                     "comptez plusieurs minutes par tâche sur un 7B en CPU.\n"
@@ -322,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
                 # Au fil de l'eau : une minute de silence par tâche rend le
                 # banc indistinguable d'un blocage.
                 resultat = passer_une_tache(
-                    registre, tache, depot, boucle, args.delai
+                    registre, tache, depot, boucle, args.delai, python
                 )
                 lot.append(resultat)
                 print(ligne_de(resultat), flush=True)
