@@ -240,3 +240,81 @@ def test_le_catalogue_se_desactive(tmp_path: Path) -> None:
 
 def test_sans_racine_il_n_y_a_pas_de_catalogue() -> None:
     assert depuis_config(Config({"catalogue": {}})) is None
+
+
+# --- la mesure longue, et sa limite ------------------------------------------
+
+DEPOT_REEL = '''
+def inflation_adjusted_gap(gap_pct, published_date, horizon_years: float):
+    """Écart de valorisation corrigé de l'inflation attendue sur l'horizon."""
+
+
+def capped_weights(conviction, cap_pct: float | None = None):
+    """Poids proportionnels à `conviction`, aucun ne dépassant cap_pct % du portefeuille."""
+
+
+def bs_price(spot: float, strike: float, t_years: float, vol: float, option_type: str):
+    """Prix Black-Scholes-Merton."""
+
+
+def charger_les_cours(chemin):
+    """Charge les cours quotidiens depuis un fichier."""
+'''
+
+
+@pytest.fixture
+def realiste(tmp_path: Path) -> Catalogue:
+    racine = tmp_path / "depot"
+    racine.mkdir()
+    (racine / "outils.py").write_text(DEPOT_REEL, encoding="utf-8")
+    return Catalogue(racine)
+
+
+def test_une_description_longue_trouve_quand_meme(realiste: Catalogue) -> None:
+    """Le défaut qui rendait le catalogue inerte sur les vraies demandes.
+
+    Le score symétrique divisait par le nombre de mots de la demande : une
+    description longue et naturelle — c'est-à-dire ce qu'on écrit vraiment —
+    était pénalisée, et le catalogue ne rendait rien.
+    """
+    longue = (
+        "Écris une fonction corriger(signaux) qui corrige la colonne gap_pct "
+        "d'un DataFrame de l'inflation attendue, en utilisant la fonction du "
+        "projet prévue pour ça."
+    )
+    trouvees = realiste.chercher(longue)
+    assert any(entree.nom == "inflation_adjusted_gap" for entree in trouvees)
+
+
+def test_une_description_longue_de_pricing_trouve(realiste: Catalogue) -> None:
+    longue = (
+        "Écris une fonction prime(spot, strike, annees, vol) qui rend le prix "
+        "d'un call, en utilisant la fonction de valorisation Black-Scholes du "
+        "projet."
+    )
+    trouvees = realiste.chercher(longue)
+    assert trouvees and trouvees[0].nom == "bs_price"
+
+
+def test_une_description_longue_hors_sujet_ne_trouve_rien(realiste: Catalogue) -> None:
+    longue = (
+        "Écris une fonction mediane(valeurs) qui rend la médiane d'une liste "
+        "de nombres, sans utiliser statistics."
+    )
+    assert realiste.chercher(longue) == []
+
+
+@pytest.mark.xfail(
+    reason="limite lexicale assumée : « plafonnant » et « dépassant » disent la "
+           "même chose sans partager un mot. C'est un rapprochement sémantique, "
+           "hors de portée d'un score lexical — c'est là que l'index de "
+           "semantique.py gagnerait sa place.",
+    strict=True,
+)
+def test_limite_le_synonyme_sans_mot_commun(realiste: Catalogue) -> None:
+    longue = (
+        "Écris une fonction repartir(convictions) qui pondère un dictionnaire "
+        "en plafonnant chaque poids, en réutilisant la fonction du projet."
+    )
+    trouvees = realiste.chercher(longue)
+    assert any(entree.nom == "capped_weights" for entree in trouvees)

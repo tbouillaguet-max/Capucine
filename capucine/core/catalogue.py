@@ -29,6 +29,7 @@ Trois choix de conception
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -61,12 +62,27 @@ def _est_un_test(chemin: Path) -> bool:
 DETACHEMENT = 1.6
 POPULATION_MINIMALE = 12
 # Le plancher se lit dans les mesures, il ne se devine pas. Sur un dépôt réel
-# de 400 entrées, six demandes sans aucun rapport (« envoie un mail »,
-# « trie une liste ») plafonnent entre 0,26 et 0,34 ; les demandes qui ont
-# leur réponse dans le dépôt commencent à 0,43. On se pose entre les deux,
-# avec de la marge des deux côtés. Refaites la mesure si vous changez le
+# de 400 entrées, avec les VRAIES descriptions du banc : cinq demandes sans
+# rapport plafonnent à 0,233, les demandes qui ont leur réponse marquent 0,44
+# et 0,61. On se pose entre les deux. Refaites la mesure si vous changez le
 # calcul du score — c'est une valeur empirique, pas une constante.
-PLANCHER = 0.40
+#
+# Une limite connue et assumée : « en plafonnant chaque poids » ne retrouve
+# pas `capped_weights`, dont le résumé dit « aucun ne dépassant cap_pct % ».
+# Les deux disent la même chose sans partager un mot : c'est un rapprochement
+# SÉMANTIQUE, hors de portée d'un score lexical, et c'est là que l'index de
+# semantique.py gagnerait sa place.
+PLANCHER = 0.30
+
+# Le contenu entre parenthèses d'un résumé est presque toujours un
+# qualificatif, jamais la définition : « (config.BACKTEST_MAX_WEIGHT_PER_
+# POSITION_PCT par défaut) » ajoute huit jetons que personne ne prononcera,
+# et dilue d'autant la couverture de l'entrée.
+_SANS_PARENTHESE = re.compile(r"\([^)]*\)")
+
+
+def _jetons_utiles(texte: str) -> set[str]:
+    return {mot for mot in texte.split() if len(mot) > 2 and mot not in MOTS_VIDES}
 
 # Les mots outils n'apportent aucun signal et apparient partout : sans ce
 # filtre, « les » et « par » offrent le bonus de jetons à la moitié du dépôt.
@@ -300,28 +316,45 @@ class Catalogue:
             return []
 
         demande = _mots(question)
-        mots = {
-            mot for mot in demande.split()
-            if len(mot) > 2 and mot not in MOTS_VIDES
-        }
-        classees: list[tuple[float, Entree]] = []
-        for entree in self._entrees:
-            cherchable = _mots(entree._cherchable)
-            score = similarity(demande, cherchable)
-            # Une correspondance exacte de nom vaut mieux que n'importe quel
-            # score de similarité : « utilise capped_weights » doit la sortir.
-            jetons = set(cherchable.split())
-            communs = sum(_apparie(mot, jetons) for mot in mots)
-            if communs:
-                score += 0.35 * communs / max(1, len(mots))
-            # Nommer une fonction explicitement doit la sortir en tête, quel
-            # que soit le reste de la phrase.
-            if _mots(entree.nom) in demande:
-                score += 1.0
-            classees.append((score, entree))
+        mots = _jetons_utiles(demande)
+        classees = [(self._noter(demande, mots, entree), entree) for entree in self._entrees]
 
         classees.sort(key=lambda paire: paire[0], reverse=True)
         return [entree for _, entree in _au_dessus_du_fond(classees)[:limite]]
+
+    def _noter(self, demande: str, mots: set[str], entree: Entree) -> float:
+        """Deux mesures mêlées, parce qu'aucune ne suffit seule.
+
+        La **couverture** demande : quelle part de l'ENTRÉE la demande
+        recouvre-t-elle ? Elle est asymétrique, donc insensible à la longueur
+        de la demande — et c'est tout le point. La mesure symétrique d'avant
+        pénalisait une description longue et naturelle (« écris une fonction
+        qui pondère un dictionnaire… en plafonnant chaque poids »),
+        c'est-à-dire exactement ce qu'on écrit vraiment : sur les vraies
+        tâches du banc, elle ne trouvait rien pour deux demandes sur trois.
+
+        La **similarité** symétrique rattrape les demandes courtes, où la
+        couverture est fragile. Le mélange bat chacune prise seule, mesuré
+        sur les mêmes demandes.
+        """
+        cherchable = _mots(entree._cherchable)
+        jetons_texte = set(cherchable.split())
+        symetrique = similarity(demande, cherchable)
+        communs = sum(_apparie(mot, jetons_texte) for mot in mots)
+        if communs:
+            symetrique += 0.35 * communs / max(1, len(mots))
+
+        resume = _SANS_PARENTHESE.sub(" ", entree.resume)
+        cibles = _jetons_utiles(_mots(f"{entree.nom} {resume}"))
+        couverture = (
+            sum(_apparie(cible, mots) for cible in cibles) / len(cibles) if cibles else 0.0
+        )
+        score = 0.65 * couverture + 0.35 * symetrique
+        # Nommer une fonction explicitement doit la sortir en tête, quel que
+        # soit le reste de la phrase.
+        if _mots(entree.nom) in demande:
+            score += 1.0
+        return score
 
     def reference(self, question: str, limite: int = 0) -> str:
         """La référence d'API à glisser dans le contexte, bornée en taille."""
