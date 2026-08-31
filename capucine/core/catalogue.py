@@ -29,6 +29,7 @@ Trois choix de conception
 from __future__ import annotations
 
 import ast
+import os
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -41,14 +42,34 @@ from .text import normalize, similarity
 logger = get_logger("catalogue")
 
 IGNORES = {
-    "__pycache__", ".git", ".venv", "venv", "node_modules", "build", "dist",
-    ".pytest_cache", ".ruff_cache", ".mypy_cache",
+    "__pycache__", ".git", ".hg", ".svn", ".venv", "venv", "node_modules",
+    "build", "dist", ".pytest_cache", ".ruff_cache", ".mypy_cache", ".tox",
+    ".eggs", ".idea", ".vscode",
+    # Le code de VOS dépendances n'est pas votre API. Sans ces deux-là, un
+    # environnement virtuel déposé dans le dossier du projet fait entrer des
+    # milliers de fonctions tierces dans le catalogue — et le modèle finit
+    # par écrire « from narwhals._compliant.any_namespace import … » pour
+    # formater une date.
+    "site-packages", "dist-packages",
 }
 # Les tests sont écartés par défaut, et ce n'est pas de la commodité : le
 # catalogue répond à « que puis-je appeler ». Personne n'appelle
 # `test_le_plafond_par_position_reste_applique` depuis du code neuf — mais
 # son nom, lui, capte toutes les recherches sur « plafond par position ».
 DOSSIERS_DE_TESTS = {"tests", "test", "testing"}
+
+
+def _est_un_environnement(dossier: Path) -> bool:
+    """Ce dossier est-il un environnement virtuel ?
+
+    Par la structure, pas par le nom : `pyvenv.cfg` est écrit par `venv` et
+    par `virtualenv` quel que soit le nom qu'on a donné au dossier. C'est le
+    seul test qui attrape un « env311 » ou un « .conda » posé dans le dépôt.
+    """
+    try:
+        return (dossier / "pyvenv.cfg").is_file()
+    except OSError:  # pragma: no cover - dossier illisible
+        return False
 
 
 def _est_un_test(chemin: Path) -> bool:
@@ -61,6 +82,7 @@ def _est_un_test(chemin: Path) -> bool:
 # Au-delà de quel écart au bruit de fond une entrée mérite d'être montrée.
 DETACHEMENT = 1.6
 POPULATION_MINIMALE = 12
+ENTREES_SUSPECTES = 4000
 # Le plancher se lit dans les mesures, il ne se devine pas. Sur un dépôt réel
 # de 400 entrées, avec les VRAIES descriptions du banc : cinq demandes sans
 # rapport plafonnent à 0,233, les demandes qui ont leur réponse marquent 0,44
@@ -294,14 +316,46 @@ class Catalogue:
             self.racine.name, len(entrees), len(fichiers),
             f", {illisibles} illisible(s)" if illisibles else "",
         )
+        if len(entrees) > ENTREES_SUSPECTES:
+            # Un dépôt applicatif dépasse rarement quelques milliers de
+            # fonctions. Au-delà, c'est presque toujours qu'on catalogue des
+            # dépendances — et les montrer au modèle lui fait écrire des
+            # imports tiers à la place du sien.
+            logger.warning(
+                "%d entrées cataloguées depuis %s : c'est beaucoup pour un projet. "
+                "Vérifiez que catalogue.racine ne contient pas un environnement "
+                "virtuel ou un dossier de dépendances.",
+                len(entrees), self.racine,
+            )
         return len(entrees)
 
     def _fichiers(self) -> list[Path]:
-        return sorted(
-            chemin for chemin in self.racine.rglob("*.py")
-            if not any(partie in IGNORES for partie in chemin.parts)
-            and (self.tests or not _est_un_test(chemin.relative_to(self.racine)))
-        )
+        """Les fichiers du PROJET, en élaguant les sous-arbres à la descente.
+
+        `rglob` descendait dans tout puis filtrait par nom : un environnement
+        virtuel nommé autrement que « venv » passait entier, et même un
+        `.venv` correctement nommé était parcouru avant d'être écarté. Sur un
+        dépôt qui héberge son venv, ça coûtait des milliers de fichiers lus
+        pour rien — et le temps de construction avec.
+        """
+        trouves: list[Path] = []
+        for dossier, sous_dossiers, fichiers in os.walk(self.racine):
+            courant = Path(dossier)
+            # L'élagage se fait EN PLACE : os.walk ne descend pas dans ce
+            # qu'on retire de la liste.
+            sous_dossiers[:] = [
+                nom for nom in sous_dossiers
+                if nom not in IGNORES
+                and not nom.endswith(".egg-info")
+                and not _est_un_environnement(courant / nom)
+            ]
+            for nom in fichiers:
+                if not nom.endswith(".py"):
+                    continue
+                chemin = courant / nom
+                if self.tests or not _est_un_test(chemin.relative_to(self.racine)):
+                    trouves.append(chemin)
+        return sorted(trouves)
 
     def _lire(self, chemin: Path) -> list[Entree]:
         source = chemin.read_text(encoding="utf-8", errors="replace")

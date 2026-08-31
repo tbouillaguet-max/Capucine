@@ -355,3 +355,72 @@ def test_un_module_non_importable_ne_ment_pas(tmp_path: Path) -> None:
     entree = Catalogue(racine).par_nom("chercher")
     assert entree.importation().startswith("# défini dans")
     assert "from" not in entree.importation()
+
+
+# --- le code des DÉPENDANCES n'est pas votre API ------------------------------
+
+def test_un_environnement_virtuel_est_ecarte_quel_que_soit_son_nom(tmp_path: Path) -> None:
+    """Le défaut qui a fait écrire au modèle un import de bibliothèque tierce.
+
+    Sur une vraie machine, le dépôt hébergeait son environnement virtuel sous
+    un nom quelconque. Le catalogue y a trouvé `narwhals`, l'a montré au
+    modèle, et celui-ci a écrit
+    ``from narwhals._compliant.any_namespace import DateTimeNamespace``
+    pour formater une date — cassant une tâche qui passait sans catalogue.
+    Injecter des fonctions hors sujet est bien pire que n'en injecter aucune.
+    """
+    racine = tmp_path / "projet"
+    (racine / "env311" / "Lib" / "site-packages" / "narwhals").mkdir(parents=True)
+    (racine / "outils.py").write_text(
+        'def ma_fonction(x):\n    """La vraie."""\n', encoding="utf-8")
+    # `pyvenv.cfg` est écrit par venv et virtualenv quel que soit le nom du
+    # dossier : c'est le seul test qui attrape un « env311 ».
+    (racine / "env311" / "pyvenv.cfg").write_text("home = /usr", encoding="utf-8")
+    (racine / "env311" / "Lib" / "site-packages" / "narwhals" / "espace.py").write_text(
+        'class DateTimeNamespace:\n    """Tierce."""\n', encoding="utf-8")
+
+    catalogue = Catalogue(racine)
+    catalogue.construire()
+    assert catalogue.par_nom("ma_fonction") is not None
+    assert catalogue.par_nom("DateTimeNamespace") is None
+
+
+def test_un_site_packages_sans_venv_est_ecarte_aussi(tmp_path: Path) -> None:
+    racine = tmp_path / "projet"
+    (racine / "vendor" / "site-packages" / "truc").mkdir(parents=True)
+    (racine / "app.py").write_text('def mienne():\n    """Mienne."""\n', encoding="utf-8")
+    (racine / "vendor" / "site-packages" / "truc" / "m.py").write_text(
+        'def fonction_tierce():\n    """Tierce."""\n', encoding="utf-8")
+
+    catalogue = Catalogue(racine)
+    catalogue.construire()
+    assert catalogue.par_nom("mienne") is not None
+    assert catalogue.par_nom("fonction_tierce") is None
+
+
+def test_un_dossier_lib_legitime_n_est_pas_ecarte(tmp_path: Path) -> None:
+    # « lib » et « Lib » ne sont pas dans la liste noire : beaucoup de projets
+    # rangent leur propre code dans lib/, et l'écarter par son nom serait pire
+    # que le mal. C'est la STRUCTURE du venv qui tranche, pas le nom.
+    racine = tmp_path / "projet"
+    (racine / "lib").mkdir(parents=True)
+    (racine / "lib" / "interne.py").write_text(
+        'def utilitaire_maison():\n    """À nous."""\n', encoding="utf-8")
+
+    assert Catalogue(racine).par_nom("utilitaire_maison") is not None
+
+
+def test_l_elagage_ne_descend_pas_dans_l_environnement(tmp_path: Path) -> None:
+    # L'élagage se fait à la descente : les milliers de fichiers d'un venv ne
+    # doivent pas être seulement filtrés, ils ne doivent pas être VISITÉS.
+    racine = tmp_path / "projet"
+    profond = racine / ".venv" / "Lib" / "site-packages"
+    profond.mkdir(parents=True)
+    for numero in range(50):
+        (profond / f"m{numero}.py").write_text(
+            f'def tierce_{numero}():\n    """Tierce."""\n', encoding="utf-8")
+    (racine / "app.py").write_text('def mienne():\n    """Mienne."""\n', encoding="utf-8")
+
+    catalogue = Catalogue(racine)
+    catalogue.construire()
+    assert catalogue.statistiques()["fichiers"] == 1
