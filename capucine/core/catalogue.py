@@ -79,6 +79,7 @@ PLANCHER = 0.30
 # POSITION_PCT par défaut) » ajoute huit jetons que personne ne prononcera,
 # et dilue d'autant la couverture de l'entrée.
 _SANS_PARENTHESE = re.compile(r"\([^)]*\)")
+_IDENTIFIANT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 def _jetons_utiles(texte: str) -> set[str]:
@@ -192,12 +193,50 @@ class Entree:
     fichier: str              # chemin relatif dans le dépôt
     ligne: int
 
+    @property
+    def module(self) -> str:
+        """Le module, sans le nom de la fonction ni celui de la classe."""
+        morceaux = self.qualifie.split(".")
+        retire = 2 if self.genre == "methode" else 1
+        return ".".join(morceaux[:-retire])
+
+    @property
+    def racine(self) -> str:
+        """Ce qu'il faut importer : la classe pour une méthode, sinon le nom."""
+        return self.qualifie.split(".")[-2] if self.genre == "methode" else self.nom
+
+    def importation(self) -> str:
+        """La ligne d'import à écrire — ou pourquoi il n'y en a pas.
+
+        Tous les modules ne s'importent pas : « 08_recuperation_options »
+        commence par un chiffre, `from 08_… import x` est une erreur de
+        syntaxe. Montrer un import impossible apprendrait au modèle à en
+        écrire un, ce qui est pire que de n'en montrer aucun.
+        """
+        if self.module and all(_IDENTIFIANT.fullmatch(part) for part in self.module.split(".")):
+            return f"from {self.module} import {self.racine}"
+        return f"# défini dans {self.fichier}"
+
+    def appel(self) -> str:
+        """La forme de l'appel, en Python VALIDE.
+
+        `def backtest.strategies.base.capped_weights(...)` ne se déclare pas
+        et ne s'appelle pas : c'est du Python impossible. Un modèle de code
+        entraîné sur du Python suit une forme qu'il reconnaît, pas une
+        notation pointée inventée pour l'occasion.
+        """
+        if self.genre == "classe":
+            return f"{self.nom}{self.signature or '()'}"
+        if self.genre == "methode":
+            return f"{self.racine}.{self.nom}{self.signature}"
+        return f"{self.nom}{self.signature}"
+
     def declaration(self) -> str:
-        mot = "class" if self.genre == "classe" else "def"
-        return f"{mot} {self.qualifie}{self.signature}"
+        return f"{self.importation()}\n{self.appel()}"
 
     def rendu(self) -> str:
-        """Ce que le modèle voit : la déclaration, puis à quoi elle sert."""
+        """Ce que le modèle voit : comment l'importer, comment l'appeler,
+        et à quoi elle sert."""
         if not self.resume:
             return self.declaration()
         return f"{self.declaration()}\n    → {self.resume}"

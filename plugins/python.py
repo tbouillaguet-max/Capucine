@@ -45,9 +45,10 @@ CONSIGNE = (
 )
 
 CONSIGNE_API = (
-    "Voici les fonctions RÉELLES du projet, avec leur signature exacte. "
-    "Utilise-les telles quelles quand elles conviennent. N'invente jamais de "
-    "fonction : si aucune ne convient, écris le code sans elle."
+    "Voici les fonctions RÉELLES du projet, avec leur ligne d'import et leur "
+    "signature exacte. Quand l'une d'elles convient, ÉCRIS SON IMPORT en tête "
+    "de ton code et APPELLE-LA — ne réécris pas ce qu'elle fait déjà. "
+    "N'invente jamais de fonction : si aucune ne convient, écris le code sans."
 )
 
 CONSIGNE_CORRECTION = (
@@ -58,7 +59,7 @@ CONSIGNE_CORRECTION = (
 )
 
 # La dernière proposition du modèle, en attente d'un accord pour être écrite.
-_PROPOSITION: dict = {"code": "", "description": ""}
+_PROPOSITION: dict = {"code": "", "description": "", "api": ""}
 
 
 def _api_en_contexte(description: str) -> str:
@@ -210,6 +211,7 @@ def ecrire_du_code(description: str) -> dict:
         return {"speak": "Que doit faire ce code ?", "display": "description vide"}
 
     api = _api_en_contexte(description)
+    _PROPOSITION["api"] = api
     code = _nettoyer(demander_au_modele(
         description, system=CONSIGNE + api,
         max_tokens=int(get_config("max_tokens_code", 900)), temperature=0.1,
@@ -305,6 +307,7 @@ def coder_et_verifier(description: str, tentatives: int = 0) -> dict:
     maximum = max(1, int(tentatives) or int(get_config("tentatives_max", 3)))
     delai = float(get_config("delai_s", 60.0))
     api = _api_en_contexte(description)
+    _PROPOSITION["api"] = api
     journal: list[str] = []
     code = ""
     trace = ""

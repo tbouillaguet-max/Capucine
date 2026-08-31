@@ -212,7 +212,7 @@ def test_la_reference_est_bornee_en_taille(depot: Path) -> None:
     # Une entrée, pas douze — et jamais vide : la meilleure passe toujours,
     # réduite à sa déclaration si besoin.
     assert reference and "capped_weights" in reference
-    assert reference.count("def ") + reference.count("class ") == 1
+    assert reference.count("from ") == 1      # une entrée, pas douze
 
 
 def test_la_reference_est_vide_quand_rien_ne_correspond(depot: Path) -> None:
@@ -221,7 +221,11 @@ def test_la_reference_est_vide_quand_rien_ne_correspond(depot: Path) -> None:
 
 def test_la_reference_montre_la_signature_et_le_role(depot: Path) -> None:
     reference = Catalogue(depot).reference("poids proportionnels plafonnés")
-    assert "def " in reference and "cap_pct" in reference
+    # Du Python VALIDE : une ligne d'import, puis la forme de l'appel.
+    # « def outils.capped_weights(...) » ne se déclare ni ne s'appelle.
+    assert "from outils import capped_weights" in reference
+    assert "capped_weights(conviction, cap_pct" in reference
+    assert "def " not in reference
     assert "→" in reference
 
 
@@ -318,3 +322,36 @@ def test_limite_le_synonyme_sans_mot_commun(realiste: Catalogue) -> None:
     )
     trouvees = realiste.chercher(longue)
     assert any(entree.nom == "capped_weights" for entree in trouvees)
+
+
+def test_une_entree_se_rend_en_python_valide(depot: Path) -> None:
+    """Le défaut qui rendait la référence inutilisable par un modèle de code.
+
+    « def outils.capped_weights(...) » n'est pas du Python : on ne déclare
+    pas `def a.b.c()`, on ne l'appelle pas non plus. Le modèle recevait une
+    forme impossible, sans savoir quoi importer.
+    """
+    entree = Catalogue(depot).par_nom("capped_weights")
+    assert entree.importation() == "from outils import capped_weights"
+    assert entree.appel().startswith("capped_weights(conviction")
+    # L'import est du Python compilable, tel quel.
+    compile(entree.importation(), "<ref>", "exec")
+
+
+def test_une_methode_montre_l_import_de_sa_classe(depot: Path) -> None:
+    entree = Catalogue(depot).par_nom("Portefeuille.valoriser")
+    assert entree.importation() == "from outils import Portefeuille"
+    assert entree.appel().startswith("Portefeuille.valoriser(cours)")
+
+
+def test_un_module_non_importable_ne_ment_pas(tmp_path: Path) -> None:
+    # `from 08_recuperation import x` est une erreur de syntaxe : montrer cet
+    # import apprendrait au modèle à en écrire un, pire que de n'en montrer
+    # aucun.
+    racine = tmp_path / "p"
+    racine.mkdir()
+    (racine / "08_recuperation.py").write_text(
+        'def chercher(x):\n    """Cherche."""\n', encoding="utf-8")
+    entree = Catalogue(racine).par_nom("chercher")
+    assert entree.importation().startswith("# défini dans")
+    assert "from" not in entree.importation()

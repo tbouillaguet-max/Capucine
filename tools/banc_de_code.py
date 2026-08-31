@@ -55,6 +55,8 @@ class Resultat:
     raison: str
     secondes: float
     lignes: int
+    entrees_api: int = 0      # signatures réellement injectées dans le contexte
+    caracteres_api: int = 0
 
 
 def charger_les_taches(chemin: Path) -> list[Tache]:
@@ -176,10 +178,17 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
     from capucine.core import plugin as contrat
 
     code = ""
+    api = ""
     module = sys.modules.get("capucine.plugins.python")
     if module is not None:
-        code = getattr(module, "_PROPOSITION", {}).get("code", "")
+        proposition = getattr(module, "_PROPOSITION", {})
+        code = proposition.get("code", "")
+        # Ce que le modèle a VRAIMENT reçu — pas ce qu'on croit lui avoir
+        # donné. Sans cette colonne, un temps qui explose sur une tâche
+        # censée ne rien recevoir reste une énigme.
+        api = proposition.get("api", "")
     del contrat
+    entrees_api = api.count("\ndef ") + api.count("\nclass ")
     reussi, raison = noter(code, tache, depot, delai)
     if not sortie.ok and not reussi:
         # Un délai dépassé n'est pas un échec du modèle : le distinguer évite
@@ -189,16 +198,18 @@ def passer_une_tache(registre, tache: Tache, depot: Path, boucle: bool, delai: f
         raison = ("⏱ délai dépassé — relancez avec --delai-competence plus haut"
                   if "trop de temps" in message else message[:120])
     return Resultat(tache.nom, tache.famille, reussi, raison,
-                    time.perf_counter() - depart, len(code.splitlines()))
+                    time.perf_counter() - depart, len(code.splitlines()),
+                    entrees_api, len(api))
 
 
 # --- restitution ------------------------------------------------------------
 
 def ligne_de(resultat: Resultat) -> str:
     marque = "✓" if resultat.reussi else "✗"
+    api = f"{resultat.entrees_api}fn/{resultat.caracteres_api}c" if resultat.entrees_api else "—"
     return (
         f"  {marque} {resultat.tache:<18} {resultat.famille:<8} "
-        f"{resultat.secondes:5.1f}s {resultat.lignes:3d}l  {resultat.raison[:52]}"
+        f"{resultat.secondes:6.1f}s {resultat.lignes:3d}l {api:>10}  {resultat.raison[:44]}"
     )
 
 
