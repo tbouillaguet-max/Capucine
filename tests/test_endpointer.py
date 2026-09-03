@@ -6,8 +6,8 @@ import struct
 
 import pytest
 
-from capucine.core.endpointer import BargeInDetector, Endpointer, EndReason
-from capucine.core.engines.vad.scripted import ScriptedVAD
+from lily.core.endpointer import BargeInDetector, Endpointer, EndReason
+from lily.core.engines.vad.scripted import ScriptedVAD
 
 TRAME = 512
 MS_PAR_TRAME = TRAME / 16000 * 1000  # 32 ms
@@ -144,7 +144,7 @@ def test_le_barge_in_ignore_le_debut_de_la_reponse() -> None:
 
 
 def test_le_barge_in_exige_une_parole_soutenue() -> None:
-    # Un claquement isolé ne doit pas couper Capucine.
+    # Un claquement isolé ne doit pas couper Lily.
     probabilites = [0.0] * 15 + [1.0, 0.0, 1.0, 0.0] * 5
     detecteur = BargeInDetector(
         ScriptedVAD(probabilites, frame_size=TRAME), min_speech_ms=200, guard_ms=100
@@ -162,7 +162,7 @@ def test_le_barge_in_se_declenche_sur_une_vraie_phrase() -> None:
 
 def test_le_seuil_du_barge_in_est_plus_haut_que_celui_de_l_ecoute() -> None:
     # 0.6 suffirait à l'écoute normale, pas à interrompre : c'est ce qui
-    # évite que Capucine se coupe elle-même en entendant sa propre voix.
+    # évite que Lily se coupe elle-même en entendant sa propre voix.
     probabilites = [0.6] * 40
     detecteur = BargeInDetector(
         ScriptedVAD(probabilites, frame_size=TRAME),

@@ -14,23 +14,23 @@ import time
 
 import pytest
 
-from capucine.core.audio import MemoryAudioInput, MemoryAudioOutput
-from capucine.core.conversation import Conversation
-from capucine.core.endpointer import BargeInDetector, Endpointer
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.engines.stt.scripted import ScriptedSTT
-from capucine.core.engines.tts.silent import SilentTTS
-from capucine.core.engines.vad.scripted import ScriptedVAD
-from capucine.core.engines.wake.scripted import ScriptedWakeWord
-from capucine.core.listener import BargeInMode, ListenMode, VoiceListener
-from capucine.core.pipeline import Pipeline, State
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import NO_TOOL, Router
+from lily.core.audio import MemoryAudioInput, MemoryAudioOutput
+from lily.core.conversation import Conversation
+from lily.core.endpointer import BargeInDetector, Endpointer
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.engines.stt.scripted import ScriptedSTT
+from lily.core.engines.tts.silent import SilentTTS
+from lily.core.engines.vad.scripted import ScriptedVAD
+from lily.core.engines.wake.scripted import ScriptedWakeWord
+from lily.core.listener import BargeInMode, ListenMode, VoiceListener
+from lily.core.pipeline import Pipeline, State
+from lily.core.registry import PluginRegistry
+from lily.core.router import NO_TOOL, Router
 
 TAILLE_MIC = 480
 
 PLUGIN_HEURE = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Donne l'heure.", examples=["quelle heure est-il"])
 def heure() -> str:
@@ -187,7 +187,7 @@ def test_sans_mode_suivi_on_retourne_attendre_le_mot_d_eveil(
     assert len(sortie.chunks) == 1
 
 
-def test_sans_mot_d_eveil_capucine_ecoute_tout(ecrire_plugin, dossier_plugins) -> None:
+def test_sans_mot_d_eveil_lily_ecoute_tout(ecrire_plugin, dossier_plugins) -> None:
     ecrire_plugin("horloge.py", PLUGIN_HEURE)
     pipeline, listener, sortie = monter(
         dossier_plugins, dit=["quelle heure est-il"], hits=(), follow_up_s=0.0
@@ -216,9 +216,9 @@ def test_une_transcription_vide_ne_declenche_aucun_tour(
     assert len(pipeline.conversation) == 0
 
 
-def test_on_peut_couper_la_parole_a_capucine(ecrire_plugin, dossier_plugins) -> None:
+def test_on_peut_couper_la_parole_a_lily(ecrire_plugin, dossier_plugins) -> None:
     # Réponse longue en plusieurs phrases ; l'utilisateur reprend la parole
-    # après la première. Capucine doit se taire au milieu et rouvrir l'écoute.
+    # après la première. Lily doit se taire au milieu et rouvrir l'écoute.
     ecrire_plugin("horloge.py", PLUGIN_HEURE)
     llm = MockLLM([json.dumps({"outil": NO_TOOL}), "Une. Deux. Trois. Quatre. Cinq."])
     pipeline, listener, sortie = monter(
@@ -305,9 +305,9 @@ def test_le_montage_de_l_ecoute_suit_la_configuration(tmp_path, dossier_plugins)
     # Ce test existe parce qu'un bloc d'imports oublié dans app.py n'aurait
     # été découvert qu'au premier démarrage en mode vocal : aucun test
     # n'appelait build_listener.
-    from capucine.app import build_assistant, build_listener
-    from capucine.core.config import Config
-    from capucine.core.engines.vad.scripted import ScriptedVAD
+    from lily.app import build_assistant, build_listener
+    from lily.core.config import Config
+    from lily.core.engines.vad.scripted import ScriptedVAD
 
     config = Config({
         "profile": "pc",

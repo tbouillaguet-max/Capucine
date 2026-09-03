@@ -32,20 +32,20 @@ from pathlib import Path
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
 
-from capucine.core.audio import AudioBuffer, WavFileInput, record  # noqa: E402
-from capucine.core.config import load_config  # noqa: E402
-from capucine.core.engines.factory import (  # noqa: E402
+from lily.core.audio import AudioBuffer, WavFileInput, record  # noqa: E402
+from lily.core.config import load_config  # noqa: E402
+from lily.core.engines.factory import (  # noqa: E402
     build_llm,
     build_stt,
     build_tts,
     build_vad,
     build_wake,
 )
-from capucine.core.errors import CapucineError  # noqa: E402
-from capucine.core.logging import setup_logging  # noqa: E402
-from capucine.core.machine import conseils, decrire  # noqa: E402
-from capucine.core.registry import PluginRegistry  # noqa: E402
-from capucine.core.router import Router  # noqa: E402
+from lily.core.errors import LilyError  # noqa: E402
+from lily.core.logging import setup_logging  # noqa: E402
+from lily.core.machine import conseils, decrire  # noqa: E402
+from lily.core.registry import PluginRegistry  # noqa: E402
+from lily.core.router import Router  # noqa: E402
 
 PHRASE = "Il est neuf heures vingt. Le minuteur des pâtes sonnera dans trois minutes."
 
@@ -122,7 +122,7 @@ def mesurer_vad(config, repetitions: int) -> Mesure:
 # --- étages à la demande ----------------------------------------------------
 
 def _audio_de_test(chemin: Path | None, tts) -> AudioBuffer | None:
-    """De quoi transcrire : un enregistrement fourni, ou la voix de Capucine.
+    """De quoi transcrire : un enregistrement fourni, ou la voix de Lily.
 
     Faire dire la phrase par Piper puis la faire transcrire par Whisper donne
     un aller-retour honnête et reproductible, sans micro.
@@ -144,7 +144,7 @@ def mesurer_transcription(config, audio: AudioBuffer | None, repetitions: int) -
         return _indisponible("transcription", "latence", "aucun audio de test")
     try:
         moteur = build_stt(config)
-    except CapucineError as exc:
+    except LilyError as exc:
         return _indisponible("transcription", "latence", str(exc)[:120])
 
     moteur.warmup()
@@ -326,7 +326,7 @@ def rapport(mesures: list[Mesure], machine, remarques: list[str], config) -> str
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="mesurer_latence",
-        description="Mesure la latence de chaque étage de Capucine sur cette machine.",
+        description="Mesure la latence de chaque étage de Lily sur cette machine.",
     )
     parser.add_argument("--profile", choices=["pc", "pi"])
     parser.add_argument("--config", metavar="FICHIER")

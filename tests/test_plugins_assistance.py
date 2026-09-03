@@ -1,6 +1,6 @@
 """Les cinq compétences d'assistance : mémoire, recherche, fichiers, Python, projet.
 
-Elles élargissent nettement ce que Capucine peut faire — et donc ce qu'elle
+Elles élargissent nettement ce que Lily peut faire — et donc ce qu'elle
 pourrait casser. Ces tests portent d'abord sur les refus.
 """
 
@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core import plugin as contrat
-from capucine.core.atelier import Atelier
-from capucine.core.config import PROJECT_ROOT, Config
-from capucine.core.conversation import Conversation
-from capucine.core.memoire import Memoire
-from capucine.core.registry import PluginRegistry
+from lily.core import plugin as contrat
+from lily.core.atelier import Atelier
+from lily.core.config import PROJECT_ROOT, Config
+from lily.core.conversation import Conversation
+from lily.core.memoire import Memoire
+from lily.core.registry import PluginRegistry
 
 DOSSIER = PROJECT_ROOT / "plugins"
 
@@ -369,11 +369,11 @@ def capped_weights(conviction, cap_pct: float | None = None):
 @pytest.fixture
 def banc_de_code(tmp_path):
     """Un atelier avec un petit dépôt, un catalogue, et un modèle scripté."""
-    from capucine.core import plugin as contrat
-    from capucine.core.atelier import depuis_config as atelier_depuis_config
-    from capucine.core.catalogue import Catalogue
-    from capucine.core.config import PROJECT_ROOT, Config
-    from capucine.core.registry import PluginRegistry
+    from lily.core import plugin as contrat
+    from lily.core.atelier import depuis_config as atelier_depuis_config
+    from lily.core.catalogue import Catalogue
+    from lily.core.config import PROJECT_ROOT, Config
+    from lily.core.registry import PluginRegistry
 
     depot = tmp_path / "projet"
     depot.mkdir()
@@ -423,11 +423,11 @@ def test_une_demande_sans_rapport_n_encombre_pas_le_contexte(banc_de_code) -> No
 
 
 def test_le_catalogue_se_coupe_par_configuration(tmp_path) -> None:
-    from capucine.core import plugin as contrat
-    from capucine.core.atelier import depuis_config as atelier_depuis_config
-    from capucine.core.catalogue import Catalogue
-    from capucine.core.config import PROJECT_ROOT, Config
-    from capucine.core.registry import PluginRegistry
+    from lily.core import plugin as contrat
+    from lily.core.atelier import depuis_config as atelier_depuis_config
+    from lily.core.catalogue import Catalogue
+    from lily.core.config import PROJECT_ROOT, Config
+    from lily.core.registry import PluginRegistry
 
     depot = tmp_path / "p"
     depot.mkdir()

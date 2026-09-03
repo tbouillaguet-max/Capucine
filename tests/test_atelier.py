@@ -1,4 +1,4 @@
-"""L'atelier : la frontière entre Capucine et vos fichiers.
+"""L'atelier : la frontière entre Lily et vos fichiers.
 
 C'est le fichier de tests le plus important de cette capacité. La commande
 arrive par la voix, la transcription est imparfaite, le modèle choisit
@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.atelier import Atelier, AtelierError, depuis_config
-from capucine.core.config import Config
-from capucine.core.errors import SkillRefused
+from lily.core.atelier import Atelier, AtelierError, depuis_config
+from lily.core.config import Config
+from lily.core.errors import SkillRefused
 
 
 @pytest.fixture
@@ -137,7 +137,7 @@ def test_deplacer_reste_dans_l_atelier(espace: Atelier, tmp_path: Path) -> None:
 # --- construction depuis la configuration -----------------------------------
 
 def test_la_configuration_par_defaut_ouvre_un_atelier_vide() -> None:
-    from capucine.core.config import load_config
+    from lily.core.config import load_config
 
     espace = depuis_config(load_config(profile="pc", environ={}))
     # Le défaut livré est volontairement inerte.

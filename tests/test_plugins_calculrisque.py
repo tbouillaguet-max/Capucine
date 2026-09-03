@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core import plugin as contrat
-from capucine.core.atelier import depuis_config as atelier_depuis_config
-from capucine.core.config import PROJECT_ROOT, Config
-from capucine.core.registry import PluginRegistry
+from lily.core import plugin as contrat
+from lily.core.atelier import depuis_config as atelier_depuis_config
+from lily.core.config import PROJECT_ROOT, Config
+from lily.core.registry import PluginRegistry
 
 PLUGINS = PROJECT_ROOT / "plugins"
 

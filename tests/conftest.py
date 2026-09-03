@@ -15,8 +15,8 @@ RACINE = Path(__file__).resolve().parent.parent
 if str(RACINE) not in sys.path:
     sys.path.insert(0, str(RACINE))
 
-from capucine.core.config import Config  # noqa: E402
-from capucine.core.registry import PluginRegistry  # noqa: E402
+from lily.core.config import Config  # noqa: E402
+from lily.core.registry import PluginRegistry  # noqa: E402
 
 
 @pytest.fixture

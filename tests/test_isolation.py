@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.config import Config
-from capucine.core.registry import PluginRegistry
+from lily.core.config import Config
+from lily.core.registry import PluginRegistry
 
 PLUGIN_ISOLE = '''
 import time
-from capucine.plugin import data_dir, get_config, skill
+from lily.plugin import data_dir, get_config, skill
 
 CONFIG_DEFAULTS = {"facteur": 2}
 
@@ -106,8 +106,8 @@ def test_le_dossier_de_donnees_est_disponible_dans_l_enfant(registre_isole) -> N
 
 
 def test_des_arguments_non_serialisables_sont_refuses_avant_le_lancement() -> None:
-    from capucine.core.errors import SkillCrashed
-    from capucine.core.isolation import run_isolated
+    from lily.core.errors import SkillCrashed
+    from lily.core.isolation import run_isolated
 
     with pytest.raises(SkillCrashed, match="sérialisables"):
         # Une lambda ne traverse pas la frontière du processus ; on le dit
@@ -121,7 +121,7 @@ def test_des_arguments_non_serialisables_sont_refuses_avant_le_lancement() -> No
 def test_le_mode_thread_reste_le_defaut(ecrire_plugin, dossier_plugins, tmp_path) -> None:
     # L'isolation coûte un processus par appel : elle se demande explicitement.
     ecrire_plugin("ordinaire.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Ordinaire.")
 def ordinaire() -> str:

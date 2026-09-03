@@ -1,18 +1,18 @@
-"""Actions irréversibles : Capucine demande avant de faire."""
+"""Actions irréversibles : Lily demande avant de faire."""
 
 from __future__ import annotations
 
 import asyncio
 
-from capucine.core.conversation import Conversation
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.pipeline import Pipeline
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import Router
-from capucine.core.text import accord_ou_refus
+from lily.core.conversation import Conversation
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.pipeline import Pipeline
+from lily.core.registry import PluginRegistry
+from lily.core.router import Router
+from lily.core.text import accord_ou_refus
 
 PLUGIN_DESTRUCTEUR = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 EFFACEMENTS = []
 

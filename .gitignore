@@ -17,9 +17,9 @@ venv/
 htmlcov/
 
 # Données locales des plugins (notes, état des minuteurs…).
-.capucine/
+.lily/
 
-# Les routines que Capucine écrit elle-même vivent chez vous, pas dans le
+# Les routines que Lily écrit elle-même vivent chez vous, pas dans le
 # dépôt : elles décrivent VOS enchaînements. Supprimez la ligne si vous
 # voulez les versionner.
 plugins/routine_*.py

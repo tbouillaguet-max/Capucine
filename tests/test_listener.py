@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import struct
 
-from capucine.core.audio import MemoryAudioInput
-from capucine.core.endpointer import BargeInDetector, Endpointer
-from capucine.core.engines.vad.scripted import ScriptedVAD
-from capucine.core.engines.wake.scripted import ScriptedWakeWord
-from capucine.core.listener import BargeInMode, ListenerEvent, ListenMode, VoiceListener
+from lily.core.audio import MemoryAudioInput
+from lily.core.endpointer import BargeInDetector, Endpointer
+from lily.core.engines.vad.scripted import ScriptedVAD
+from lily.core.engines.wake.scripted import ScriptedWakeWord
+from lily.core.listener import BargeInMode, ListenerEvent, ListenMode, VoiceListener
 
 TAILLE_MIC = 480     # 30 ms à 16 kHz, ce que délivre la configuration par défaut
 
@@ -96,7 +96,7 @@ def test_le_barge_in_peut_etre_desactive() -> None:
 
 def test_en_mode_eveil_seul_le_mot_interrompt() -> None:
     # Sur haut-parleur, le micro entend la réponse en cours : n'accepter que
-    # « Capucine » évite qu'elle se coupe elle-même.
+    # « Lily » évite qu'elle se coupe elle-même.
     listener, evenements = monter(
         ListenMode.MONITOR, probabilites=[1.0] * 100, hits=[], barge_in_mode=BargeInMode.WAKE
     )

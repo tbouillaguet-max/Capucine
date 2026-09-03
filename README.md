@@ -1,4 +1,4 @@
-# Capucine
+# Lily
 
 Assistante vocale francophone, **entièrement locale**. Aucun service tiers,
 aucune clé d'API, aucun appel réseau sortant : elle fonctionne le Wi-Fi coupé.
@@ -10,19 +10,19 @@ redémarrer l'assistante, et sans jamais toucher au cœur.
 > **État : les cinq étapes sont terminées**, plus une extension d'assistance
 > (mémoire persistante, recherche web, fichiers, Python, projets). Le critère
 > d'acceptation du projet passe : déposez un fichier dans `plugins/` pendant
-> que Capucine tourne, elle annonce la nouvelle compétence et l'exécute — sans
+> que Lily tourne, elle annonce la nouvelle compétence et l'exécute — sans
 > redémarrage et sans toucher au cœur.
 
 ---
 
 ## Le critère d'acceptation, en trois gestes
 
-Capucine tourne. Sans l'arrêter, sans toucher à une ligne du cœur :
+Lily tourne. Sans l'arrêter, sans toucher à une ligne du cœur :
 
 ```bash
 cat > plugins/dés.py <<'EOF'
 import random
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Lance un dé.", examples=["lance un dé", "tire un dé"])
 def lancer_de(faces: int = 6) -> str:
@@ -32,9 +32,9 @@ EOF
 ```
 
 ```
-Capucine › Nouvelle compétence disponible : lancer de.
-Vous     › lance un dé à vingt faces
-Capucine › 13
+Lily › Nouvelle compétence disponible : lancer de.
+Vous  › lance un dé à vingt faces
+Lily › 13
 ```
 
 Aucun modèle de langage n'a été sollicité : l'étage déterministe du routeur a
@@ -48,16 +48,19 @@ observateur de fichiers.
 
 Python 3.11 ou plus récent. Le cœur ne dépend que de la bibliothèque standard ;
 tout le reste est optionnel et chargé paresseusement. On installe donc par
-couches, et Capucine fonctionne à chaque étape.
+couches, et Lily fonctionne à chaque étape.
 
 Rien n'est jamais téléchargé automatiquement au démarrage : un assistant censé
 fonctionner le Wi-Fi coupé ne sort pas sur le réseau sans qu'on le lui demande.
 
 ### Windows
 
+> Le dépôt GitHub porte encore son ancien nom : `git` suit la redirection le
+> jour où vous le renommerez, la commande ci-dessous marche dans les deux cas.
+
 ```powershell
-git clone https://github.com/tbouillaguet-max/Capucine.git
-cd Capucine
+git clone https://github.com/tbouillaguet-max/capucine.git Lily
+cd Lily
 py -3.11 -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev,reload]"
@@ -100,7 +103,7 @@ installer à côté.
 
 ```powershell
 pip install -e ".[audio]"
-python -m capucine.core.downloads tout     # voix Piper + modèle Whisper
+python -m lily.core.downloads tout     # voix Piper + modèle Whisper
 python main.py --devices                   # repérez votre micro
 python main.py --push-to-talk
 ```
@@ -114,8 +117,8 @@ de transcription par cinq à dix. Il faut CUDA et cuDNN installés ; sans eux,
 ```powershell
 pip install -e ".[wake,vosk]"
 pip install --no-deps silero-vad           # --no-deps n'est pas une coquille, voir plus bas
-python -m capucine.core.downloads vosk
-python main.py                             # dites « Capucine »
+python -m lily.core.downloads vosk
+python main.py                             # dites « Lily »
 ```
 
 ### Linux et Raspberry Pi
@@ -124,8 +127,8 @@ python main.py                             # dites « Capucine »
 sudo apt update
 sudo apt install python3 python3-venv python3-dev git libportaudio2
 
-git clone https://github.com/tbouillaguet-max/Capucine.git
-cd Capucine
+git clone https://github.com/tbouillaguet-max/capucine.git Lily
+cd Lily
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,reload]"
@@ -151,8 +154,8 @@ terminal fait l'affaire le temps d'un essai.
 ```bash
 pip install -e ".[audio,wake,vosk]"
 pip install --no-deps silero-vad
-python -m capucine.core.downloads tout --profile pi
-python -m capucine.core.downloads vosk
+python -m lily.core.downloads tout --profile pi
+python -m lily.core.downloads vosk
 
 python main.py --devices                   # repérez votre micro USB
 python main.py --profile pi
@@ -180,10 +183,10 @@ voix sur haut-parleur ouvert.
 ### Démarrage automatique sur Raspberry Pi
 
 ```bash
-sudo cp deploy/capucine.service /etc/systemd/system/
+sudo cp deploy/lily.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now capucine
-journalctl -u capucine -f
+sudo systemctl enable --now lily
+journalctl -u lily -f
 ```
 
 Le fichier est commenté et à adapter : utilisateur, chemins, périphérique
@@ -194,7 +197,7 @@ audio. Il journalise en JSON, ce qui permet d'agréger les latences ailleurs.
 Le paquet `silero-vad` importe `torch` **et** `torchaudio` dès son `__init__`,
 y compris sur le chemin ONNX : plusieurs centaines de méga-octets sur un Pi,
 pour un modèle de moins d'un méga-octet. Or le fichier `silero_vad.onnx` est
-livré *dans* le paquet. Capucine le localise sans importer le paquet et
+livré *dans* le paquet. Lily le localise sans importer le paquet et
 l'exécute avec `onnxruntime` : mêmes poids, sans la chaîne torch.
 
 Sans lui, un VAD par énergie à plancher de bruit adaptatif prend le relais
@@ -202,22 +205,22 @@ automatiquement — moins fin dans le bruit, mais opérationnel partout.
 
 ### Le mot d'éveil demande un modèle qui n'existe pas encore
 
-openWakeWord ne fournit aucun modèle « capucine » pré-entraîné ; il faut
-l'entraîner, ce que pilote `tools/entrainer_capucine.py`. En attendant,
-Capucine bascule automatiquement sur le repli Vosk à grammaire restreinte —
-un décodeur qui n'a le droit de reconnaître que « capucine » et rien d'autre,
+openWakeWord ne fournit aucun modèle « lily » pré-entraîné ; il faut
+l'entraîner, ce que pilote `tools/entrainer_lily.py`. En attendant,
+Lily bascule automatiquement sur le repli Vosk à grammaire restreinte —
+un décodeur qui n'a le droit de reconnaître que « lily » et rien d'autre,
 donc rapide et peu gourmand. Ce n'est pas une panne, c'est un état normal du
 projet.
 
-Conséquence pour le corpus d'éveil : `entrainer_capucine.py corpus` marche
+Conséquence pour le corpus d'éveil : `entrainer_lily.py corpus` marche
 dès maintenant (il ne fait que ranger des fichiers), mais `seuil` réclame un
 modèle openWakeWord installé — il n'a donc pas pu être exécuté de bout en
-bout ici, faute de modèle « capucine » à mesurer.
+bout ici, faute de modèle « lily » à mesurer.
 
 ## Utilisation
 
 ```bash
-python main.py                              # écoute permanente : dites « Capucine »
+python main.py                              # écoute permanente : dites « Lily »
 python main.py --push-to-talk               # [Entrée] pour parler, sans mot d'éveil
 python main.py --no-wake                    # écoute tout, sans mot d'éveil
 python main.py --barge-in eveil             # ne se tait que si l'on redit son nom
@@ -254,7 +257,7 @@ Un fichier `.py` dans `plugins/`. C'est tout : pas d'enregistrement, pas
 d'import à ajouter, pas de manifeste.
 
 ```python
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(
     description="Donne la météo actuelle ou prévue pour une ville.",
@@ -273,8 +276,8 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 | Élément | Rôle |
 |---|---|
 | `@skill(description=…, examples=…)` | Déclare la compétence. `examples` n'est pas décoratif : le routeur déterministe s'en sert pour choisir l'outil **sans** solliciter le modèle. |
-| `@skill(timeout=…)` | Délai maximum. Au-delà, Capucine répond qu'elle n'a pas pu exécuter la commande. |
-| `@skill(confirm="…")` | Action irréversible : Capucine pose la question et attend un oui avant d'exécuter. |
+| `@skill(timeout=…)` | Délai maximum. Au-delà, Lily répond qu'elle n'a pas pu exécuter la commande. |
+| `@skill(confirm="…")` | Action irréversible : Lily pose la question et attend un oui avant d'exécuter. |
 | `@skill(isolate=True)` | Exécute dans un sous-processus, réellement tuable. Voir la limite assumée plus bas. |
 | `raise SkillRefused("…")` | Refuser **en le disant**. Le message est prononcé mot pour mot, ce n'est pas compté comme une panne. |
 | `demander_au_modele(prompt)` | Une complétion du modèle local. Pas de routage, donc pas de récursion : un plugin ne peut pas en déclencher un autre par ce biais. |
@@ -286,7 +289,7 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 | `get_config("cle")` | Lit ces réglages. Utilisable dès le corps du module. |
 | `data_dir()` | Dossier inscriptible réservé au plugin, créé à la demande. |
 | `get_logger()` | Journal nommé d'après le plugin. |
-| `announce("…")` | Fait parler Capucine hors d'un tour — pour une tâche de fond, un minuteur qui sonne. |
+| `announce("…")` | Fait parler Lily hors d'un tour — pour une tâche de fond, un minuteur qui sonne. |
 | `on_load()` / `on_unload()` | Cycle de vie : ouvrir une connexion, libérer une ressource. |
 
 ### Ce que le plugin retourne
@@ -294,13 +297,13 @@ valeurs par défaut et de la docstring. **Vous n'écrivez jamais de JSON.**
 * une **chaîne** → lue à voix haute telle quelle ;
 * un **dict** `{"speak": …, "display": …}` → dissocie ce qui est dit de ce qui
   est journalisé ;
-* `None` → Capucine ne dit rien.
+* `None` → Lily ne dit rien.
 
 ### Règles
 
 * **Jamais d'installation automatique de dépendance.** Un import manquant
   écarte le plugin avec un message qui nomme le paquet et la commande.
-* **Un plugin ne fait jamais tomber Capucine.** Erreur à l'import, exception à
+* **Un plugin ne fait jamais tomber Lily.** Erreur à l'import, exception à
   l'exécution, dépassement de délai, `sys.exit()` : tout est confiné.
 * Un plugin en échec répété est mis en quarantaine et retiré du catalogue
   proposé au modèle.
@@ -316,7 +319,7 @@ Quatre plugins **pédagogiques**, documentation vivante du contrat :
 | `notes.py` | `data_dir()`, `CONFIG_DEFAULTS`, et `confirm=` sur l'effacement. |
 | `systeme.py` | Une dépendance optionnelle (`psutil`) traitée par dégradation plutôt que par échec, et du code qui diffère selon la plateforme sans que le cœur en sache rien. |
 
-Six plugins d'**assistance**, qui font vraiment travailler Capucine :
+Six plugins d'**assistance**, qui font vraiment travailler Lily :
 
 | Fichier | Ce qu'elle sait faire |
 |---|---|
@@ -347,12 +350,12 @@ donc encadrées, et il faut lire cette section avant de les ouvrir.
 
 ```
 Vous  › retiens que je travaille sur CalculRisque
-Capucine › C'est retenu.
+Lily › C'est retenu.
                        ⟶ redémarrage ⟵
 Vous  › que sais-tu de moi
-Capucine › Tu travailles sur CalculRisque.
+Lily › Tu travailles sur CalculRisque.
 Vous  › reprends notre conversation d'hier
-Capucine › Nous reprenons la conversation d'hier à 18 h 40 : le backtest options.
+Lily › Nous reprenons la conversation d'hier à 18 h 40 : le backtest options.
 ```
 
 Trois horizons distincts, souvent confondus : le **fil courant** (borné, il
@@ -409,11 +412,11 @@ pip install -e ".[documents]"
 
 ```
 Vous  › ouvre le rapport word
-Capucine › Rapport trimestriel de valorisation. Le multiple médian ressort à 12,4x.
+Lily › Rapport trimestriel de valorisation. Le multiple médian ressort à 12,4x.
 Vous  › quelles feuilles il y a dans le classeur
-Capucine › 2 feuilles : Synthèse, Détail.
+Lily › 2 feuilles : Synthèse, Détail.
 Vous  › cherche le mot médian dans mes documents
-Capucine › 2 documents : budget.xlsx, rapport.docx.
+Lily › 2 documents : budget.xlsx, rapport.docx.
 ```
 
 Ce qu'elle lit : Word (paragraphes **et** tableaux — ils portent souvent
@@ -432,10 +435,10 @@ styles, formules et mises en page ; le faire à moitié abîmerait vos fichiers.
 
 ```
 Vous  › écris-moi un script qui trie un csv par date
-Capucine › J'ai écrit 18 lignes. Relisez-les, puis dites-moi où les enregistrer.
+Lily › J'ai écrit 18 lignes. Relisez-les, puis dites-moi où les enregistrer.
           [le code s'affiche]
 Vous  › enregistre-le dans outils/tri.py
-Capucine › Voulez-vous vraiment enregistrer ce code ?
+Lily › Voulez-vous vraiment enregistrer ce code ?
 ```
 
 Le cycle est **proposer puis enregistrer**, en deux compétences : un modèle 7B
@@ -446,7 +449,7 @@ shell.
 ### Lancer un projet entier
 
 Un pipeline de données tourne quarante minutes : hors de question de bloquer un
-tour de parole. Capucine lance, rend la main tout de suite, et vous interrompt
+tour de parole. Lily lance, rend la main tout de suite, et vous interrompt
 à la fin.
 
 ```toml
@@ -463,14 +466,14 @@ variables = { SEC_CONTACT_EMAIL = "vous@exemple.fr" }
 
 ```
 Vous  › lance le pipeline calculrisque
-Capucine › C'est parti pour calculrisque. Je vous préviens à la fin.
+Lily › C'est parti pour calculrisque. Je vous préviens à la fin.
 Vous  › où en est le pipeline
-Capucine › calculrisque tourne depuis 12 minutes. 06b_calcul_valorisation_combinee.py
+Lily › calculrisque tourne depuis 12 minutes. 06b_calcul_valorisation_combinee.py
                        ⟶ trente minutes plus tard ⟵
-Capucine › calculrisque est terminé, en 41 minutes.
+Lily › calculrisque est terminé, en 41 minutes.
 ```
 
-`rapport` pointe vers le JSON de run : Capucine sait alors dire « le dernier run
+`rapport` pointe vers le JSON de run : Lily sait alors dire « le dernier run
 s'est terminé en partial, étapes en échec : 08_recuperation_options.py ».
 Ajouter un projet ne demande pas de toucher au code.
 
@@ -478,7 +481,7 @@ Ajouter un projet ne demande pas de toucher au code.
 
 **Ce plugin sort de la machine.** C'est la seule dérogation à la règle numéro
 un du projet, et elle est délibérée : elle vit dans un plugin, pas dans le
-cœur. Retirez `plugins/recherche.py` et Capucine redevient intégralement
+cœur. Retirez `plugins/recherche.py` et Lily redevient intégralement
 hors-ligne. Trois moteurs :
 
 | Moteur | Ce qu'il demande | Remarque |
@@ -499,7 +502,7 @@ n'est pas la syntaxe, c'est l'**invention d'API**. Il ignore que
 
 ```
 Vous  › écris une fonction qui pondère des convictions en plafonnant les poids
-Capucine › J'ai écrit 12 lignes, en voyant 2 de vos fonctions.
+Lily › J'ai écrit 12 lignes, en voyant 2 de vos fonctions.
                                      ⟶ affiché ⟵
              def backtest.strategies.base.capped_weights(conviction: pd.Series,
                  cap_pct: float | None = None, max_iter: int = 20) -> pd.Series
@@ -507,7 +510,7 @@ Capucine › J'ai écrit 12 lignes, en voyant 2 de vos fonctions.
                    cap_pct % du portefeuille.
 ```
 
-**1. Le catalogue d'API** (`capucine/core/catalogue.py`). Il lit vos signatures
+**1. Le catalogue d'API** (`lily/core/catalogue.py`). Il lit vos signatures
 et vos docstrings **par AST, jamais par import** — aucun effet de bord, et pas
 besoin que les dépendances du dépôt soient installées. C'est le mécanisme de
 `schema.py` (signature + docstring = contrat) appliqué au code que vous
@@ -587,13 +590,13 @@ optimiseurs, et la forme exacte d'une stratégie dans son registre.
 
 ```
 Vous  › fais la mise à jour quotidienne
-Capucine › C'est parti : mise à jour quotidienne, 1 étape.
+Lily › C'est parti : mise à jour quotidienne, 1 étape.
 Vous  › optimise le seuil d'entrée
-Capucine › C'est parti. Ça prend des heures ; je vous préviens à la fin.
+Lily › C'est parti. Ça prend des heures ; je vous préviens à la fin.
                               ⟶ trois heures plus tard ⟵
-Capucine › optimisation seuil_entree : terminé, 1 étape réussie.
+Lily › optimisation seuil_entree : terminé, 1 étape réussie.
 Vous  › qu'est-ce que ça a donné
-Capucine › D'après seuil_entree_20260830.csv, le meilleur réglage est :
+Lily › D'après seuil_entree_20260830.csv, le meilleur réglage est :
            entry_threshold_pct 35, sharpe 1.42.
 ```
 
@@ -612,7 +615,7 @@ il s'agit d'argent. Le gabarit reprend la mécanique de `valuation_gap_dcf`
 injecte que vos réglages : seuil d'entrée, conviction sur l'écart brut ou sur
 l'excédent sectoriel, pondération proportionnelle ou égale, plafond de
 positions, filtre de secteurs. Le fichier produit est compilé avant d'être
-écrit, puis Capucine interroge le **vrai registre** (`09_backtest.py
+écrit, puis Lily interroge le **vrai registre** (`09_backtest.py
 --list-strategies`) pour vérifier qu'il charge — écrire un fichier qui ne
 s'importe pas serait pire que ne rien écrire.
 
@@ -633,9 +636,9 @@ demande pas de toucher au plugin.
 
 ```
 Vous  › indexe tout le dossier des rapports
-Capucine › J'ai indexé 14 documents, et sauté 3 inchangés.
+Lily › J'ai indexé 14 documents, et sauté 3 inchangés.
 Vous  › d'après mes documents, combien on a perdu au premier trimestre
-Capucine › Une perte de douze mille quatre cents euros, d'après le rapport Q1.
+Lily › Une perte de douze mille quatre cents euros, d'après le rapport Q1.
                                         ⟶ affiché ⟵
                        Sources :
                        · rapport_q1.docx  (proximité 0.81)
@@ -672,10 +675,10 @@ de plongement invalide l'index — deux espaces vectoriels ne se comparent pas.
 
 ```
 Vous  › relance-moi le bazar du dépôt CalculRisque_Mark5
-Capucine › Le pipeline est parti.        (le modèle a tranché : 380 ms de réflexion)
+Lily › Le pipeline est parti.        (le modèle a tranché : 380 ms de réflexion)
                        ⟶ le lendemain ⟵
 Vous  › relance-moi le bazar
-Capucine › Le pipeline est parti.        (l'étage déterministe a suffi : 4 ms)
+Lily › Le pipeline est parti.        (l'étage déterministe a suffi : 4 ms)
 ```
 
 Trois mécanismes, **aucun réentraînement de modèle**. C'est un choix, pas un
@@ -711,7 +714,7 @@ Chaque mécanisme se coupe séparément dans `[apprentissage]`, et
 
 ### Ce qu'elle apprend de votre voix
 
-Le modèle « capucine » livré est entraîné sur des voix de synthèse
+Le modèle « lily » livré est entraîné sur des voix de synthèse
 françaises. Il marche, mais il ne connaît ni votre timbre, ni votre débit, ni
 l'acoustique de votre pièce — et c'est précisément ce qui sépare un mot
 d'éveil qui répond du premier coup d'un qu'il faut répéter.
@@ -725,8 +728,8 @@ déclenchement, et les étiquette tout seul d'après ce qui suit :
 | rien du tout | **faux positif** | la télévision l'a réveillée : ces exemples-là ne s'inventent pas en studio |
 
 ```
-python tools/entrainer_capucine.py seuil     # mesure VOTRE seuil au lieu de le deviner
-python tools/entrainer_capucine.py corpus    # verse les extraits dans le jeu d'entraînement
+python tools/entrainer_lily.py seuil     # mesure VOTRE seuil au lieu de le deviner
+python tools/entrainer_lily.py corpus    # verse les extraits dans le jeu d'entraînement
 ```
 
 `seuil` passe le modèle courant sur vos propres enregistrements et balaie les
@@ -744,19 +747,19 @@ intention — et le nombre de fichiers est borné.
 
 ```
 Vous  › quelle heure est-il
-Capucine › Il est sept heures dix.
+Lily › Il est sept heures dix.
 Vous  › mes notes
-Capucine › Vous avez deux notes…
+Lily › Vous avez deux notes…
 Vous  › retiens cette routine, elle s'appelle mon matin
-Capucine › C'est retenu. Dites « matin » et je referai : heure, puis mes notes.
+Lily › C'est retenu. Dites « matin » et je referai : heure, puis mes notes.
                     ⟶ plugins/routine_matin.py vient d'apparaître ⟵
 Vous  › matin
-Capucine › Il est sept heures onze. Vous avez deux notes…
+Lily › Il est sept heures onze. Vous avez deux notes…
 ```
 
 C'est **le critère d'acceptation du projet retourné comme un gant**. « Déposer
 un fichier dans `plugins/` ajoute une capacité, sans redémarrer et sans
-toucher au cœur » — ici, c'est Capucine qui dépose le fichier, et elle passe
+toucher au cœur » — ici, c'est Lily qui dépose le fichier, et elle passe
 par exactement le même chemin que vous : écriture atomique, surveillance,
 rechargement à chaud.
 
@@ -780,7 +783,7 @@ rappellerait elle-même est arrêtée net, en le disant.
 ## Architecture
 
 ```
-IDLE ──« Capucine »──▶ WAKE ─▶ LISTEN ─▶ TRANSCRIBE ─▶ THINK
+IDLE ──« Lily »──▶ WAKE ─▶ LISTEN ─▶ TRANSCRIBE ─▶ THINK
                                                          │
 IDLE ◀── suivi expiré ──── SPEAK ◀───── ACT ◀────────────┘
   ▲                          │
@@ -792,7 +795,7 @@ Chaque étage est derrière une interface abstraite (`WakeWordEngine`,
 configuration, pas une refonte.
 
 ```
-capucine/
+lily/
 ├── plugin.py               ← LE module que les plugins importent
 ├── app.py                  assemblage config → registre → routeur → pipeline
 └── core/
@@ -803,7 +806,7 @@ capucine/
     ├── catalogue.py        les signatures de VOS fonctions, lues par AST
     ├── corpus.py           les extraits d'éveil gardés pour réapprendre votre voix
     ├── journal.py          les derniers gestes, pour apprendre une routine
-    ├── atelier.py          la frontière entre Capucine et vos fichiers
+    ├── atelier.py          la frontière entre Lily et vos fichiers
     ├── listener.py         le fil qui tient le micro, du début à la fin
     ├── endpointer.py       fin d'énoncé, pré-roll, détection de barge-in
     ├── audio.py            un seul point d'entrée/sortie, sans dépendance
@@ -823,8 +826,8 @@ capucine/
         ├── tts/            piper, silent
         ├── vad/            silero (onnxruntime), énergie, scripted
         └── wake/           openwakeword, vosk, scripted
-tools/entrainer_capucine.py entraînement du mot d'éveil, et mesure du seuil
-tools/banc_de_code.py       mesure ce qui fait vraiment coder Capucine
+tools/entrainer_lily.py entraînement du mot d'éveil, et mesure du seuil
+tools/banc_de_code.py       mesure ce qui fait vraiment coder Lily
 plugins/                    ← LE dossier
 config/                     default.toml, pc.toml, pi.toml, persona.txt
 ```
@@ -892,14 +895,14 @@ Trois précautions, dont aucune ne se devine :
 
 L'annonce vocale est volontairement discrète : on n'annonce qu'un nom de
 compétence *nouveau*. Pendant le développement, on enregistre un fichier trente
-fois par heure ; une Capucine qui commente chaque sauvegarde devient vite
+fois par heure ; une Lily qui commente chaque sauvegarde devient vite
 insupportable.
 
 ### L'écoute permanente
 
 **Un seul thread tient le micro**, ouvert du début à la fin de la session.
 C'est ce qui rend le barge-in possible : le micro n'est jamais fermé, même
-pendant que Capucine parle. Selon le mode courant, chaque trame part vers le
+pendant que Lily parle. Selon le mode courant, chaque trame part vers le
 détecteur de mot d'éveil, vers le découpeur d'énoncé, ou vers la surveillance
 d'interruption. Le thread ne décide de rien : il émet des événements que la
 boucle asyncio consomme.
@@ -911,11 +914,11 @@ perdue — et une durée minimale de parole, pour qu'une porte qui claque ne
 devienne pas une commande.
 
 **Le barge-in doit composer avec l'écho.** Sans annulation acoustique, le
-micro entend le haut-parleur et Capucine se coupe elle-même. Trois garde-fous
+micro entend le haut-parleur et Lily se coupe elle-même. Trois garde-fous
 réglables : un seuil plus haut que pour l'écoute normale (0,85), un délai de
 garde au début de la réponse, et une durée de parole soutenue exigée. Au
 casque, on peut tout abaisser. Sur haut-parleur ouvert — le cas d'un Pi —
-`barge_in.mode = "eveil"` (n'interrompre que si l'on redit « Capucine ») reste
+`barge_in.mode = "eveil"` (n'interrompre que si l'on redit « Lily ») reste
 le plus sûr ; c'est le défaut du profil Pi.
 
 **Le mode suivi** garde l'écoute ouverte quelques secondes après la réponse :
@@ -927,11 +930,11 @@ Quatre couches, de la plus faible à la plus forte :
 
 1. `config/default.toml` ;
 2. le profil `config/pc.toml` ou `config/pi.toml`, détecté automatiquement ;
-3. les variables d'environnement `CAPUCINE_SECTION__CLE` ;
+3. les variables d'environnement `LILY_SECTION__CLE` ;
 4. les options de ligne de commande.
 
 ```bash
-CAPUCINE_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
+LILY_LLM__MODEL=qwen2.5:3b-instruct-q4_K_M python main.py --text
 ```
 
 ---
@@ -989,18 +992,18 @@ bibliothèques installées, de sorte qu'une dérive d'API fasse échouer la suit
 |---|---|---|
 | 1 | Squelette, config, interfaces, registre de plugins, routeur, mode texte | **fait** |
 | 2 | STT (`faster-whisper`, Vosk) + TTS (`piper`), pipeline vocal au clavier | **fait** |
-| 3 | Mot d'éveil « Capucine » (`openWakeWord` + repli Vosk), VAD (`silero`), barge-in, mode suivi | **fait** |
+| 3 | Mot d'éveil « Lily » (`openWakeWord` + repli Vosk), VAD (`silero`), barge-in, mode suivi | **fait** |
 | 4 | Rechargement à chaud (`watchdog`), isolation en sous-processus, confirmation, quatre plugins d'exemple | **fait** |
 | 5 | Profil Raspberry Pi, mesures de latence, guide d'installation par plateforme | **fait** |
 
 ### Entraîner le mot d'éveil
 
 ```bash
-python tools/entrainer_capucine.py preparer      # config + état des prérequis
-python tools/entrainer_capucine.py echantillons  # positifs français, voix Piper
-python tools/entrainer_capucine.py entrainer     # pipeline officiel openWakeWord
-python tools/entrainer_capucine.py installer     # copie le modèle dans models/wake/
-python tools/entrainer_capucine.py essayer a.wav # vérifie sur un enregistrement
+python tools/entrainer_lily.py preparer      # config + état des prérequis
+python tools/entrainer_lily.py echantillons  # positifs français, voix Piper
+python tools/entrainer_lily.py entrainer     # pipeline officiel openWakeWord
+python tools/entrainer_lily.py installer     # copie le modèle dans models/wake/
+python tools/entrainer_lily.py essayer a.wav # vérifie sur un enregistrement
 ```
 
 `preparer` liste ce qui manque et la commande pour l'obtenir : le générateur
@@ -1018,7 +1021,7 @@ principal un certain temps.
 ### La limite annoncée à l'étape 1, et sa parade
 
 On ne peut pas tuer un thread en Python. Un plugin parti en boucle infinie est
-*abandonné* — Capucine répond et le met en quarantaine — mais son thread
+*abandonné* — Lily répond et le met en quarantaine — mais son thread
 continue jusqu'à ce qu'il finisse.
 
 La parade existe désormais, en option et par compétence :

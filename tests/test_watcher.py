@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.registry import PluginRegistry
-from capucine.core.watcher import ChangeKind, PluginWatcher, traduire_evenement
+from lily.core.registry import PluginRegistry
+from lily.core.watcher import ChangeKind, PluginWatcher, traduire_evenement
 
 PLUGIN = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Dit bonjour.", examples=["dis bonjour"])
 def saluer() -> str:

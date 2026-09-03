@@ -6,7 +6,7 @@ arrive par la voix, une transcription est imparfaite, et un modèle 7B choisit
 parfois mal ses arguments. Une capacité livrée inerte est une capacité qui ne
 détruit rien avant que vous l'ayez voulue.
 
-Les garanties, tenues par ``capucine.core.atelier`` :
+Les garanties, tenues par ``lily.core.atelier`` :
 
 * tout chemin est résolu (liens symboliques compris) puis vérifié comme
   appartenant à une racine autorisée ;
@@ -16,7 +16,7 @@ Les garanties, tenues par ``capucine.core.atelier`` :
 * écrire, déplacer et jeter demandent confirmation à voix haute.
 """
 
-from capucine.plugin import atelier, get_config, skill
+from lily.plugin import atelier, get_config, skill
 
 CONFIG_DEFAULTS = {
     "fichiers_listes": 25,
@@ -197,11 +197,11 @@ def jeter_fichier(chemin: str) -> str:
 
 
 @skill(
-    description="Dit quels dossiers Capucine a le droit de lire et d'écrire.",
+    description="Dit quels dossiers Lily a le droit de lire et d'écrire.",
     examples=["quels dossiers peux-tu voir", "où as-tu le droit d'écrire", "ton atelier"],
 )
 def mon_atelier() -> dict:
-    """Décrit le périmètre ouvert à Capucine."""
+    """Décrit le périmètre ouvert à Lily."""
     try:
         espace = atelier()
     except PermissionError as exc:

@@ -21,13 +21,13 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.audio import AudioBuffer
-from capucine.core.engines.stt.fasterwhisper import FasterWhisperSTT
-from capucine.core.engines.stt.scripted import ScriptedSTT
-from capucine.core.engines.stt.vosk import VoskSTT
-from capucine.core.engines.tts.piper import PiperTTS
-from capucine.core.engines.tts.silent import SilentTTS
-from capucine.core.errors import EngineUnavailable
+from lily.core.audio import AudioBuffer
+from lily.core.engines.stt.fasterwhisper import FasterWhisperSTT
+from lily.core.engines.stt.scripted import ScriptedSTT
+from lily.core.engines.stt.vosk import VoskSTT
+from lily.core.engines.tts.piper import PiperTTS
+from lily.core.engines.tts.silent import SilentTTS
+from lily.core.errors import EngineUnavailable
 
 
 def bruit(secondes: float = 1.0, amplitude: int = 8000, sample_rate: int = 16000) -> AudioBuffer:
@@ -310,7 +310,7 @@ def test_un_paquet_absent_ne_se_confond_pas_avec_un_service_muet(monkeypatch) ->
     dépendance séparée. Annoncer « injoignable » quand c'est lui qui manque
     envoie réinstaller un service qui tourne très bien.
     """
-    from capucine.core.engines.llm.ollama import OllamaLLM
+    from lily.core.engines.llm.ollama import OllamaLLM
 
     _SansPaquet(monkeypatch, "ollama")
     moteur = OllamaLLM()
@@ -320,7 +320,7 @@ def test_un_paquet_absent_ne_se_confond_pas_avec_un_service_muet(monkeypatch) ->
 
 
 def test_un_service_muet_dit_ou_le_chercher() -> None:
-    from capucine.core.engines.llm.ollama import OllamaLLM
+    from lily.core.engines.llm.ollama import OllamaLLM
 
     # Port absurde : rien n'écoute, mais le paquet est là.
     moteur = OllamaLLM(host="http://127.0.0.1:1")
@@ -330,7 +330,7 @@ def test_un_service_muet_dit_ou_le_chercher() -> None:
 
 
 def test_le_vectoriseur_distingue_aussi_les_deux(monkeypatch) -> None:
-    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+    from lily.core.engines.embeddings.ollama import OllamaEmbeddings
 
     muet = OllamaEmbeddings(host="http://127.0.0.1:1")
     assert not muet.available()
@@ -343,7 +343,7 @@ def test_le_vectoriseur_distingue_aussi_les_deux(monkeypatch) -> None:
 
 
 def test_le_modele_non_tire_est_une_troisieme_panne(monkeypatch) -> None:
-    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+    from lily.core.engines.embeddings.ollama import OllamaEmbeddings
 
     class Entree:
         model = "qwen2.5:7b-instruct-q4_K_M"
@@ -364,7 +364,7 @@ def test_le_modele_non_tire_est_une_troisieme_panne(monkeypatch) -> None:
 
 
 def test_un_moteur_disponible_n_a_pas_de_raison(monkeypatch) -> None:
-    from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
+    from lily.core.engines.embeddings.ollama import OllamaEmbeddings
 
     class Entree:
         model = "nomic-embed-text:latest"
@@ -382,7 +382,7 @@ def test_un_moteur_disponible_n_a_pas_de_raison(monkeypatch) -> None:
 
 
 def test_llamacpp_nomme_ce_qui_manque(tmp_path) -> None:
-    from capucine.core.engines.llm.llamacpp import LlamaCppLLM
+    from lily.core.engines.llm.llamacpp import LlamaCppLLM
 
     moteur = LlamaCppLLM()
     assert not moteur.available()

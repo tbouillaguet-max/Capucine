@@ -6,11 +6,11 @@ import struct
 
 import pytest
 
-from capucine.core.audio import Rechunker
-from capucine.core.engines.vad.energy import EnergyVAD, rms
-from capucine.core.engines.vad.scripted import ScriptedVAD
-from capucine.core.engines.vad.silero import SileroVAD
-from capucine.core.errors import EngineUnavailable
+from lily.core.audio import Rechunker
+from lily.core.engines.vad.energy import EnergyVAD, rms
+from lily.core.engines.vad.scripted import ScriptedVAD
+from lily.core.engines.vad.silero import SileroVAD
+from lily.core.errors import EngineUnavailable
 
 
 def trame(amplitude: int, taille: int = 480) -> bytes:

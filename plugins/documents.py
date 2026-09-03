@@ -17,7 +17,7 @@ qui nomme le paquet, jamais une trace d'exception.
 import csv as csv_stdlib
 from pathlib import Path
 
-from capucine.plugin import (
+from lily.plugin import (
     SkillRefused,
     atelier,
     connaissances,

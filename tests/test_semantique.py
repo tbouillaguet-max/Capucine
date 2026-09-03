@@ -8,18 +8,18 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.config import Config
-from capucine.core.conversation import Conversation
-from capucine.core.engines.embeddings.hachage import HachageEmbeddings
-from capucine.core.engines.embeddings.ollama import OllamaEmbeddings
-from capucine.core.engines.factory import build_embeddings
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.errors import EngineUnavailable
-from capucine.core.interfaces.embeddings import EmbeddingEngine
-from capucine.core.pipeline import Pipeline
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import Router
-from capucine.core.semantique import (
+from lily.core.config import Config
+from lily.core.conversation import Conversation
+from lily.core.engines.embeddings.hachage import HachageEmbeddings
+from lily.core.engines.embeddings.ollama import OllamaEmbeddings
+from lily.core.engines.factory import build_embeddings
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.errors import EngineUnavailable
+from lily.core.interfaces.embeddings import EmbeddingEngine
+from lily.core.pipeline import Pipeline
+from lily.core.registry import PluginRegistry
+from lily.core.router import Router
+from lily.core.semantique import (
     Connaissances,
     IndexPlein,
     decouper,
@@ -288,7 +288,7 @@ def test_l_indexation_des_conversations_se_coupe(tmp_path: Path) -> None:
 # --- le pipeline nourrit l'index --------------------------------------------
 
 PLUGIN = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Donne l'heure.", examples=["quelle heure est-il"])
 def heure() -> str:
@@ -360,7 +360,7 @@ def test_le_vectoriseur_refuse_un_hote_distant() -> None:
 
 
 def test_la_fabrique_avale_le_refus_d_un_hote_distant() -> None:
-    # Une configuration fautive ne doit pas empêcher Capucine de démarrer.
+    # Une configuration fautive ne doit pas empêcher Lily de démarrer.
     config = Config({"connaissances": {"engine": "ollama", "host": "http://exemple.com"}})
     assert build_embeddings(config) is None
 
@@ -435,8 +435,8 @@ def test_le_moteur_ollama_exige_le_modele_tire(monkeypatch) -> None:
 # --- les compétences livrées -------------------------------------------------
 
 def test_les_competences_de_connaissances_repondent(index, tmp_path) -> None:
-    from capucine.core import plugin as contrat
-    from capucine.core.config import PROJECT_ROOT
+    from lily.core import plugin as contrat
+    from lily.core.config import PROJECT_ROOT
 
     contrat.set_connaissances(index)
     contrat.set_model_access(lambda prompt, **kwargs: "D'après le rapport, la perte est de douze mille euros.")
@@ -454,7 +454,7 @@ def test_les_competences_de_connaissances_repondent(index, tmp_path) -> None:
         assert registry.call("passages_sur", {"sujet": "backtest"}).ok
         assert "1 document" in registry.call("mes_connaissances").display
 
-        # Oublier détruit du travail d'indexation : Capucine demande d'abord.
+        # Oublier détruit du travail d'indexation : Lily demande d'abord.
         demande = registry.call("oublier_ce_que_tu_as_lu", {"document": "rapport.md"})
         assert demande.needs_confirmation
         assert index.statistiques()["fragments"] == 1
@@ -472,8 +472,8 @@ def test_les_competences_de_connaissances_repondent(index, tmp_path) -> None:
 
 
 def test_sans_index_la_competence_refuse_proprement(tmp_path) -> None:
-    from capucine.core import plugin as contrat
-    from capucine.core.config import PROJECT_ROOT
+    from lily.core import plugin as contrat
+    from lily.core.config import PROJECT_ROOT
 
     contrat.set_connaissances(None)
     registry = PluginRegistry([PROJECT_ROOT / "plugins"], data_root=tmp_path / "d")

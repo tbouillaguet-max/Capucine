@@ -49,7 +49,7 @@ voice = "fr_FR-siwis-medium"
 
 [wake]
 # Vosk d'emblée : il consomme peu et tourne en continu sans peine. Basculez
-# sur openwakeword une fois le modèle « capucine » entraîné.
+# sur openwakeword une fois le modèle « lily » entraîné.
 engine = "vosk"
 
 [vad]

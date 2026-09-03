@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from capucine.core.text import split_sentences, stream_sentences
+from lily.core.text import split_sentences, stream_sentences
 
 
 @pytest.mark.parametrize(

@@ -1,11 +1,11 @@
-"""Ce que Capucine sait de la machine, et ce qu'elle en conclut."""
+"""Ce que Lily sait de la machine, et ce qu'elle en conclut."""
 
 from __future__ import annotations
 
 import pytest
 
-from capucine.core.config import Config, load_config
-from capucine.core.machine import Machine, conseils, decrire
+from lily.core.config import Config, load_config
+from lily.core.machine import Machine, conseils, decrire
 
 
 def test_decrire_ne_leve_jamais_et_dit_quelque_chose() -> None:

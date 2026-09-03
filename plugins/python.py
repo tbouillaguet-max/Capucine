@@ -18,7 +18,7 @@ import shlex
 import subprocess
 import sys
 
-from capucine.plugin import (
+from lily.plugin import (
     SkillRefused,
     atelier,
     catalogue,
@@ -31,7 +31,7 @@ from capucine.plugin import (
 CONFIG_DEFAULTS = {
     "delai_s": 60.0,
     "sortie_max_lignes": 40,
-    "interpreteur": "",          # vide = le même Python que Capucine
+    "interpreteur": "",          # vide = le même Python que Lily
     "max_tokens_code": 900,
     "api_en_contexte": True,       # montrer les signatures de VOS fonctions
     "fonctions_montrees": 12,
@@ -380,7 +380,7 @@ def _rapport(code: str, journal: list[str], resultat: dict | None, api: str) -> 
 
 
 @skill(
-    description="Dit quelles fonctions du projet Capucine connaît, et lesquelles correspondent à une demande.",
+    description="Dit quelles fonctions du projet Lily connaît, et lesquelles correspondent à une demande.",
     examples=[
         "quelles fonctions tu connais",
         "quelles fonctions correspondent aux poids plafonnés",

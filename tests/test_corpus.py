@@ -7,12 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.config import Config
-from capucine.core.corpus import CorpusEveil
-from capucine.core.corpus import depuis_config as corpus_depuis_config
-from capucine.core.endpointer import Endpointer
-from capucine.core.interfaces.wake import WakeEvent, WakeWordEngine
-from capucine.core.listener import ListenerEvent, ListenMode, VoiceListener
+from lily.core.config import Config
+from lily.core.corpus import CorpusEveil
+from lily.core.corpus import depuis_config as corpus_depuis_config
+from lily.core.endpointer import Endpointer
+from lily.core.interfaces.wake import WakeEvent, WakeWordEngine
+from lily.core.listener import ListenerEvent, ListenMode, VoiceListener
 
 TRAME = b"\x11\x22" * 480          # 30 ms à 16 kHz
 
@@ -179,13 +179,13 @@ class EveilScripte(WakeWordEngine):
     def process(self, frame: bytes) -> WakeEvent | None:
         self.vues += 1
         if self.vues == self.a_la_trame:
-            return WakeEvent(word="capucine", score=0.91, timestamp=0.0)
+            return WakeEvent(word="lily", score=0.91, timestamp=0.0)
         return None
 
 
 def test_le_fil_d_ecoute_nourrit_le_corpus(corpus: CorpusEveil, tmp_path: Path) -> None:
-    from capucine.core.audio import MemoryAudioInput
-    from capucine.core.engines.vad.scripted import ScriptedVAD
+    from lily.core.audio import MemoryAudioInput
+    from lily.core.engines.vad.scripted import ScriptedVAD
 
     evenements: list[ListenerEvent] = []
     # Douze trames de 30 ms avant le déclenchement : de quoi remplir la

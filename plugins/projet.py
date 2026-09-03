@@ -9,7 +9,7 @@ Ce qu'il montre :
   de configuration, pas dans le code : ajouter un projet ne demande pas de
   toucher au plugin ;
 * la réutilisation de l'**atelier** comme périmètre de sécurité. Un projet
-  doit se trouver dans un dossier que vous avez ouvert, sans quoi Capucine
+  doit se trouver dans un dossier que vous avez ouvert, sans quoi Lily
   refuse de le lancer.
 
 Déclaration d'un projet, dans ``config/pc.toml`` ::
@@ -35,7 +35,7 @@ import threading
 import time
 from pathlib import Path
 
-from capucine.plugin import SkillRefused, announce, atelier, get_config, get_logger, skill
+from lily.plugin import SkillRefused, announce, atelier, get_config, get_logger, skill
 
 CONFIG_DEFAULTS = {
     "projets": {},
@@ -300,7 +300,7 @@ def tester_projet(nom: str = "") -> dict:
 
 
 @skill(
-    description="Liste les projets que Capucine sait lancer.",
+    description="Liste les projets que Lily sait lancer.",
     examples=["quels projets connais-tu", "mes projets", "que peux-tu lancer"],
 )
 def mes_projets() -> dict:

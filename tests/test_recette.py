@@ -2,8 +2,8 @@
 
     1. J'écris un fichier plugins/dés.py contenant une fonction
        lancer_de(faces: int = 6) décorée @skill.
-    2. Je le dépose dans le dossier pendant que Capucine tourne.
-    3. Je dis « Capucine, lance un dé à vingt faces ».
+    2. Je le dépose dans le dossier pendant que Lily tourne.
+    3. Je dis « Lily, lance un dé à vingt faces ».
     4. Elle répond avec un nombre entre 1 et 20.
 
 Sans toucher au cœur, sans redémarrer, et — c'est le plus notable — sans
@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from capucine.app import build_assistant, start_hot_reload
-from capucine.core.config import Config
-from capucine.core.engines.llm.mock import MockLLM
+from lily.app import build_assistant, start_hot_reload
+from lily.core.config import Config
+from lily.core.engines.llm.mock import MockLLM
 
 # Exactement le fichier décrit par le critère d'acceptation, nom accentué compris.
 DES = '''
 import random
 
-from capucine.plugin import skill
+from lily.plugin import skill
 
 
 @skill(
@@ -64,7 +64,7 @@ def test_le_critere_d_acceptation(dossier_plugins: Path, tmp_path: Path) -> None
         assert start_hot_reload(assistant), "la surveillance n'a pas démarré"
         assert assistant.registry.skills == {}
 
-        # 1 et 2 : le fichier est déposé pendant que Capucine tourne.
+        # 1 et 2 : le fichier est déposé pendant que Lily tourne.
         (dossier_plugins / "dés.py").write_text(DES, encoding="utf-8")
 
         limite = time.monotonic() + 15

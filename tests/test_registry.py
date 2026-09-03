@@ -1,7 +1,7 @@
 """Registre de plugins : découverte, isolation des pannes, cycle de vie.
 
 C'est le cœur du projet : un fichier déposé dans le dossier suffit, et un
-plugin fautif ne doit jamais faire tomber Capucine.
+plugin fautif ne doit jamais faire tomber Lily.
 """
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from capucine.core.config import Config
-from capucine.core.registry import PluginRegistry
+from lily.core.config import Config
+from lily.core.registry import PluginRegistry
 
 PLUGIN_SIMPLE = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Dit bonjour.", examples=["dis bonjour"])
 def saluer(nom: str = "toi") -> str:
@@ -34,14 +34,14 @@ def test_un_fichier_depose_suffit(ecrire_plugin, registre) -> None:
     assert spec.tool_schema["function"]["parameters"]["properties"]["nom"]["type"] == "string"
     assert "dis bonjour" in spec.tool_schema["function"]["description"]
 
-    resultat = registry.call("saluer", {"nom": "Capucine"})
+    resultat = registry.call("saluer", {"nom": "Lily"})
     assert resultat.ok
-    assert resultat.speak == "Bonjour Capucine."
+    assert resultat.speak == "Bonjour Lily."
 
 
 def test_un_retour_dict_dissocie_la_parole_et_le_journal(ecrire_plugin, registre) -> None:
     ecrire_plugin("dual.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Deux sorties.")
 def deux() -> dict:
@@ -66,7 +66,7 @@ def test_un_plugin_casse_a_l_import_est_ignore_les_autres_survivent(ecrire_plugi
     assert "casse" in echecs
     assert "je casse" in echecs["casse"].error
     # Le module fautif ne reste pas dans sys.modules.
-    assert "capucine.plugins.casse" not in sys.modules
+    assert "lily.plugins.casse" not in sys.modules
 
 
 def test_une_erreur_de_syntaxe_est_traitee_comme_le_reste(ecrire_plugin, registre) -> None:
@@ -87,10 +87,10 @@ def test_une_dependance_manquante_nomme_le_paquet(ecrire_plugin, registre) -> No
     assert "pip install paquet_qui_n_existe_pas" in echec.error
 
 
-def test_un_plugin_lent_est_abandonne_et_capucine_repond(ecrire_plugin, registre) -> None:
+def test_un_plugin_lent_est_abandonne_et_lily_repond(ecrire_plugin, registre) -> None:
     ecrire_plugin("lent.py", '''
 import time
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Ne finit jamais.", timeout=0.2)
 def trainer() -> str:
@@ -107,9 +107,9 @@ def trainer() -> str:
     assert "trainer" in registry.skills
 
 
-def test_un_plugin_qui_leve_ne_fait_pas_tomber_capucine(ecrire_plugin, registre) -> None:
+def test_un_plugin_qui_leve_ne_fait_pas_tomber_lily(ecrire_plugin, registre) -> None:
     ecrire_plugin("explose.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Explose.")
 def exploser() -> str:
@@ -125,10 +125,10 @@ def exploser() -> str:
 
 def test_un_plugin_qui_appelle_sys_exit_ne_tue_pas_le_processus(ecrire_plugin, registre) -> None:
     # SystemExit n'hérite pas d'Exception : sans capture de BaseException à la
-    # frontière, ce plugin arrêterait Capucine.
+    # frontière, ce plugin arrêterait Lily.
     ecrire_plugin("suicidaire.py", '''
 import sys
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Quitte.")
 def quitter() -> str:
@@ -143,7 +143,7 @@ def quitter() -> str:
 
 def test_quarantaine_apres_plusieurs_echecs(ecrire_plugin, registre) -> None:
     ecrire_plugin("explose.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Explose.")
 def exploser() -> str:
@@ -168,7 +168,7 @@ def test_les_hooks_de_cycle_de_vie_sont_appeles(ecrire_plugin, registre, tmp_pat
     trace = tmp_path / "trace.txt"
     ecrire_plugin("cycle.py", f'''
 from pathlib import Path
-from capucine.plugin import skill
+from lily.plugin import skill
 
 TRACE = Path(r"{trace}")
 
@@ -194,7 +194,7 @@ def rien() -> str:
 
 def test_un_on_load_qui_echoue_ecarte_le_plugin(ecrire_plugin, registre) -> None:
     ecrire_plugin("mauvais_demarrage.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 def on_load():
     raise OSError("port déjà utilisé")
@@ -212,7 +212,7 @@ def rien() -> str:
 
 def test_config_defaults_surchargee_par_le_fichier(ecrire_plugin, registre) -> None:
     ecrire_plugin("reglable.py", '''
-from capucine.plugin import get_config, skill
+from lily.plugin import get_config, skill
 
 CONFIG_DEFAULTS = {"unite": "celsius", "precision": 1}
 
@@ -232,7 +232,7 @@ def reglages() -> str:
 
 def test_data_dir_est_propre_a_chaque_plugin(ecrire_plugin, registre, tmp_path: Path) -> None:
     ecrire_plugin("stockeur.py", '''
-from capucine.plugin import data_dir, skill
+from lily.plugin import data_dir, skill
 
 @skill(description="Écrit un fichier.")
 def ecrire() -> str:
@@ -251,7 +251,7 @@ def test_un_nom_de_fichier_accentue_fonctionne(ecrire_plugin, registre) -> None:
     # Le critère d'acceptation du projet utilise littéralement « plugins/dés.py ».
     ecrire_plugin("dés.py", '''
 import random
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Lance un dé.", examples=["lance un dé"])
 def lancer_de(faces: int = 6) -> str:
@@ -269,7 +269,7 @@ def lancer_de(faces: int = 6) -> str:
 
 def test_un_nom_de_skill_accentue_est_expose_en_ascii(ecrire_plugin, registre) -> None:
     ecrire_plugin("accents.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Éteint la lumière.")
 def éteindre() -> str:
@@ -284,7 +284,7 @@ def éteindre() -> str:
 
 def test_rechargement_prend_en_compte_les_modifications(ecrire_plugin, registre) -> None:
     chemin = ecrire_plugin("evolutif.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Version 1.")
 def version() -> str:
@@ -295,7 +295,7 @@ def version() -> str:
     assert registry.call("version").speak == "un"
 
     chemin.write_text('''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Version 2.")
 def version() -> str:
@@ -313,7 +313,7 @@ def nouveaute() -> str:
 
 def test_le_rechargement_retire_les_skills_disparus(ecrire_plugin, registre) -> None:
     chemin = ecrire_plugin("retrecit.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="A.")
 def a() -> str: return "a"
@@ -326,7 +326,7 @@ def b() -> str: return "b"
     assert {"a", "b"} <= set(registry.skills)
 
     chemin.write_text('''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="A.")
 def a() -> str: return "a"
@@ -350,7 +350,7 @@ def test_le_rappel_on_change_annonce_les_nouveautes(ecrire_plugin, registre) -> 
 
 def test_un_skill_au_schema_impossible_n_emporte_pas_ses_voisins(ecrire_plugin, registre) -> None:
     ecrire_plugin("mixte.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Impossible à décrire.")
 def variadique(*args) -> str:
@@ -368,7 +368,7 @@ def correcte() -> str:
 
 def test_un_argument_obligatoire_manquant_ne_lance_pas_le_plugin(ecrire_plugin, registre) -> None:
     ecrire_plugin("exigeant.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 APPELS = []
 
@@ -383,7 +383,7 @@ def meteo(ville: str) -> str:
     resultat = registry.call("meteo", {})
     assert not resultat.ok
     assert "ville" in resultat.speak
-    assert sys.modules["capucine.plugins.exigeant"].APPELS == []
+    assert sys.modules["lily.plugins.exigeant"].APPELS == []
 
 
 def test_les_fichiers_prefixes_sont_ignores(ecrire_plugin, registre) -> None:
@@ -405,7 +405,7 @@ def test_un_skill_asynchrone_est_supporte(ecrire_plugin, registre) -> None:
     # est accepté en bonus, sans que le contrat change.
     ecrire_plugin("asynchrone.py", """
 import asyncio
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Attend un peu.")
 async def patienter() -> str:

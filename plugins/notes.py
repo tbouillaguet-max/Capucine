@@ -7,7 +7,7 @@ Ce qu'il montre :
 * ``CONFIG_DEFAULTS`` + ``get_config()`` — des réglages surchargeables depuis
   ``[plugins.notes]`` du fichier de configuration ;
 * ``@skill(confirm=…)`` — une action irréversible n'est pas exécutée du
-  premier coup : Capucine pose la question et attend un oui.
+  premier coup : Lily pose la question et attend un oui.
 
 Le format est du JSON Lines : une note par ligne. Un fichier tronqué par une
 coupure de courant ne perd que sa dernière ligne, là où un JSON unique serait
@@ -17,7 +17,7 @@ entièrement illisible.
 import json
 from datetime import datetime
 
-from capucine.plugin import data_dir, get_config, get_logger, skill
+from lily.plugin import data_dir, get_config, get_logger, skill
 
 CONFIG_DEFAULTS = {
     "fichier": "notes.jsonl",
@@ -123,7 +123,7 @@ def chercher_note(mot: str) -> dict:
 def effacer_notes() -> str:
     """Supprime le fichier de notes.
 
-    Déclarée ``confirm=`` : Capucine pose la question et n'exécute qu'après un
+    Déclarée ``confirm=`` : Lily pose la question et n'exécute qu'après un
     oui. Une commande vocale mal transcrite ne doit pas détruire des données.
     """
     chemin = _chemin()

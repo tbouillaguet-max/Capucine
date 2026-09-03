@@ -13,7 +13,7 @@ Ce qu'il montre :
 from datetime import datetime, timedelta
 from typing import Literal
 
-from capucine.plugin import skill
+from lily.plugin import skill
 
 _UNITES = [
     "zéro", "une", "deux", "trois", "quatre", "cinq", "six", "sept", "huit",

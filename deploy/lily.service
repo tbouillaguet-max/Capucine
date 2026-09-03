@@ -1,0 +1,46 @@
+# Service systemd pour lancer Lily au démarrage d'un Raspberry Pi.
+#
+#   sudo cp deploy/lily.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now lily
+#   journalctl -u lily -f
+#
+# Adaptez User, WorkingDirectory et ExecStart à votre installation.
+
+[Unit]
+Description=Lily, assistante vocale locale
+# L'audio et le réseau local (pour Ollama) doivent être prêts.
+After=sound.target network.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=pi
+Group=audio
+WorkingDirectory=/home/pi/Lily
+Environment="PYTHONUNBUFFERED=1"
+Environment="LILY_PROFILE=pi"
+# Décommentez pour forcer un périphérique :
+# Environment="LILY_AUDIO__INPUT_DEVICE=USB PnP Sound Device"
+ExecStart=/home/pi/Lily/.venv/bin/python /home/pi/Lily/main.py --json-logs
+
+# Une carte SD n'aime pas les redémarrages en boucle : on laisse respirer.
+Restart=on-failure
+RestartSec=10
+
+# Le modèle de langage vit chez Ollama, pas ici : quelques centaines de méga
+# suffisent à Lily elle-même. Relevez la limite si vous utilisez
+# llama-cpp-python en processus.
+MemoryMax=1500M
+Nice=-5
+
+# Durcissement raisonnable : Lily n'a besoin que de son dossier et de
+# ~/.lily pour les données des plugins.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/pi/Lily/models /home/pi/.lily
+
+[Install]
+WantedBy=multi-user.target

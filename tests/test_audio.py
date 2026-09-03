@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.audio import (
+from lily.core.audio import (
     AudioBuffer,
     AudioChunk,
     AudioUnavailable,
@@ -144,37 +144,37 @@ def test_un_morceau_connait_sa_duree() -> None:
 def test_sans_micro_le_montage_echoue_tout_de_suite(monkeypatch) -> None:
     # Mieux vaut refuser au démarrage avec un message net qu'échouer à chaque
     # phrase prononcée.
-    from capucine.core.engines import factory
-    from capucine.core.errors import EngineUnavailable
+    from lily.core.engines import factory
+    from lily.core.errors import EngineUnavailable
 
-    monkeypatch.setattr("capucine.core.audio._peripherique_disponible", lambda *_: False)
+    monkeypatch.setattr("lily.core.audio._peripherique_disponible", lambda *_: False)
     config = _config_audio()
     with pytest.raises(EngineUnavailable, match="Aucun micro"):
         factory.build_audio_input(config)
 
 
-def test_sans_haut_parleur_capucine_affiche_au_lieu_de_dire(monkeypatch) -> None:
-    from capucine.core.engines import factory
+def test_sans_haut_parleur_lily_affiche_au_lieu_de_dire(monkeypatch) -> None:
+    from lily.core.engines import factory
 
-    monkeypatch.setattr("capucine.core.audio._peripherique_disponible", lambda *_: False)
+    monkeypatch.setattr("lily.core.audio._peripherique_disponible", lambda *_: False)
     assert factory.build_audio_output(_config_audio()) is None
 
 
 def test_avec_un_peripherique_on_obtient_bien_les_flux_reels(monkeypatch) -> None:
-    from capucine.core.audio import SoundDeviceOutput
-    from capucine.core.engines import factory
+    from lily.core.audio import SoundDeviceOutput
+    from lily.core.engines import factory
 
-    monkeypatch.setattr("capucine.core.audio._peripherique_disponible", lambda *_: True)
+    monkeypatch.setattr("lily.core.audio._peripherique_disponible", lambda *_: True)
     assert isinstance(factory.build_audio_output(_config_audio()), SoundDeviceOutput)
 
 
 def test_le_mode_muet_garde_la_synthese_mais_ne_joue_rien() -> None:
-    from capucine.core.engines import factory
+    from lily.core.engines import factory
 
     assert isinstance(factory.build_audio_output(_config_audio(), silent=True), NullAudioOutput)
 
 
 def _config_audio():
-    from capucine.core.config import Config
+    from lily.core.config import Config
 
     return Config({"audio": {"sample_rate": 16000, "frame_ms": 30}})

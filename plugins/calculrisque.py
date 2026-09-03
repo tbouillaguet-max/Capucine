@@ -46,7 +46,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from capucine.plugin import (
+from lily.plugin import (
     SkillRefused,
     announce,
     atelier,
@@ -514,7 +514,7 @@ def _familles() -> list[str]:
 
 # --- compétences : les stratégies -------------------------------------------
 
-GABARIT = '''"""Stratégie « {nom} », écrite par Capucine le {date}.
+GABARIT = '''"""Stratégie « {nom} », écrite par Lily le {date}.
 
 {intention}
 

@@ -11,17 +11,17 @@ import json
 import struct
 import threading
 
-from capucine.core.audio import AudioChunk, MemoryAudioInput, MemoryAudioOutput
-from capucine.core.conversation import Conversation
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.engines.stt.scripted import ScriptedSTT
-from capucine.core.engines.tts.silent import SilentTTS
-from capucine.core.pipeline import Pipeline, State
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import NO_TOOL, Router
+from lily.core.audio import AudioChunk, MemoryAudioInput, MemoryAudioOutput
+from lily.core.conversation import Conversation
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.engines.stt.scripted import ScriptedSTT
+from lily.core.engines.tts.silent import SilentTTS
+from lily.core.pipeline import Pipeline, State
+from lily.core.registry import PluginRegistry
+from lily.core.router import NO_TOOL, Router
 
 PLUGIN_HEURE = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Donne l'heure.", examples=["quelle heure est-il"])
 def heure() -> str:
@@ -174,7 +174,7 @@ def test_une_synthese_en_panne_n_empeche_pas_de_repondre(ecrire_plugin, dossier_
     assert sortie.chunks == []
 
 
-def test_sans_voix_capucine_affiche_au_lieu_de_dire(ecrire_plugin, dossier_plugins, capsys) -> None:
+def test_sans_voix_lily_affiche_au_lieu_de_dire(ecrire_plugin, dossier_plugins, capsys) -> None:
     ecrire_plugin("horloge.py", PLUGIN_HEURE)
     pipeline, _, _ = monter(dossier_plugins, dit=["quelle heure est-il"], tts=None)
     assert not pipeline.has_voice
@@ -205,7 +205,7 @@ def test_la_duree_maximale_borne_la_capture(ecrire_plugin, dossier_plugins) -> N
 def test_un_peripherique_qui_disparait_bascule_en_affichage(
     ecrire_plugin, dossier_plugins, capsys
 ) -> None:
-    from capucine.core.audio import AudioUnavailable
+    from lily.core.audio import AudioUnavailable
 
     ecrire_plugin("horloge.py", PLUGIN_HEURE)
 

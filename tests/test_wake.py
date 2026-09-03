@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.config import Config
-from capucine.core.engines.factory import build_wake
-from capucine.core.engines.wake.openwakeword import OpenWakeWordEngine
-from capucine.core.engines.wake.scripted import ScriptedWakeWord
-from capucine.core.engines.wake.vosk import VoskWakeWord
-from capucine.core.errors import EngineUnavailable
+from lily.core.config import Config
+from lily.core.engines.factory import build_wake
+from lily.core.engines.wake.openwakeword import OpenWakeWordEngine
+from lily.core.engines.wake.scripted import ScriptedWakeWord
+from lily.core.engines.wake.vosk import VoskWakeWord
+from lily.core.errors import EngineUnavailable
 
 TRAME_OWW = b"\x00\x00" * 1280
 
@@ -30,7 +30,7 @@ def test_le_moteur_scripte_se_declenche_aux_trames_prevues() -> None:
 # --- openWakeWord -----------------------------------------------------------
 
 class _FauxModeleOww:
-    scores: dict = {"capucine": 0.9}
+    scores: dict = {"lily": 0.9}
     remises_a_zero = 0
     trames: list = []
 
@@ -53,8 +53,8 @@ def faux_oww(monkeypatch, tmp_path: Path):
     module.model = sous_module  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "openwakeword", module)
     monkeypatch.setitem(sys.modules, "openwakeword.model", sous_module)
-    (tmp_path / "capucine.onnx").write_bytes(b"onnx")
-    _FauxModeleOww.scores = {"capucine": 0.9}
+    (tmp_path / "lily.onnx").write_bytes(b"onnx")
+    _FauxModeleOww.scores = {"lily": 0.9}
     _FauxModeleOww.remises_a_zero = 0
     _FauxModeleOww.trames = []
     return tmp_path
@@ -67,7 +67,7 @@ def test_openwakeword_detecte_au_dessus_du_seuil(faux_oww) -> None:
 
     evenement = moteur.process(TRAME_OWW)
     assert evenement is not None
-    assert evenement.word == "capucine"
+    assert evenement.word == "lily"
     assert evenement.score == pytest.approx(0.9)
     # La trame arrive bien en entiers 16 bits, pas en octets.
     assert _FauxModeleOww.trames == [1280]
@@ -76,7 +76,7 @@ def test_openwakeword_detecte_au_dessus_du_seuil(faux_oww) -> None:
 
 
 def test_openwakeword_se_tait_sous_le_seuil(faux_oww) -> None:
-    _FauxModeleOww.scores = {"capucine": 0.2}
+    _FauxModeleOww.scores = {"lily": 0.2}
     moteur = OpenWakeWordEngine(models_dir=faux_oww, threshold=0.5)
     assert moteur.process(TRAME_OWW) is None
 
@@ -99,7 +99,7 @@ def test_sans_anti_rebond_chaque_trame_peut_declencher(faux_oww) -> None:
 def test_le_message_renvoie_vers_le_script_d_entrainement(tmp_path: Path) -> None:
     moteur = OpenWakeWordEngine(models_dir=tmp_path)
     assert not moteur.available()
-    with pytest.raises(EngineUnavailable, match="entrainer_capucine"):
+    with pytest.raises(EngineUnavailable, match="entrainer_lily"):
         moteur.process(TRAME_OWW)
 
 
@@ -142,20 +142,20 @@ def test_la_grammaire_vosk_est_restreinte(faux_vosk) -> None:
     moteur = VoskWakeWord(model_path=faux_vosk)
     assert moteur.available()
     grammaire = json.loads(moteur.grammar())
-    assert "capucine" in grammaire
+    assert "lily" in grammaire
     assert "[unk]" in grammaire
 
 
 def test_vosk_detecte_le_mot_dans_un_resultat_partiel(faux_vosk) -> None:
-    _FauxRecogniser.partiels = ["", "ma", "ma capucine"]
+    _FauxRecogniser.partiels = ["", "ma", "ma lily"]
     moteur = VoskWakeWord(model_path=faux_vosk)
     resultats = [moteur.process(b"\x00" * 4000) for _ in range(3)]
     assert [r is not None for r in resultats] == [False, False, True]
-    assert resultats[2].word == "capucine"
+    assert resultats[2].word == "lily"
 
 
 def test_vosk_ignore_un_mot_proche_mais_different(faux_vosk) -> None:
-    _FauxRecogniser.partiels = ["la cuisine", "un capucin"]
+    _FauxRecogniser.partiels = ["la limite", "des lilas"]
     moteur = VoskWakeWord(model_path=faux_vosk)
     assert all(moteur.process(b"\x00" * 4000) is None for _ in range(2))
 
@@ -168,7 +168,7 @@ def test_vosk_dit_ou_trouver_son_modele(tmp_path: Path) -> None:
 # --- chaîne de replis du montage -------------------------------------------
 
 def _config(**wake) -> Config:
-    return Config({"wake": {"word": "capucine", **wake}})
+    return Config({"wake": {"word": "lily", **wake}})
 
 
 def test_le_montage_choisit_openwakeword_quand_il_est_pret(faux_oww) -> None:

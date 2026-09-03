@@ -2,7 +2,7 @@
 
 **Ce plugin sort de la machine.** C'est la seule entorse à la règle numéro un
 du projet — « tout tourne en local » — et elle est délibérée : elle vit dans un
-plugin, pas dans le cœur. Retirez le fichier et Capucine redevient
+plugin, pas dans le cœur. Retirez le fichier et Lily redevient
 intégralement hors-ligne. Elle annonce d'ailleurs qu'elle va sur le réseau
 plutôt que de le faire en silence.
 
@@ -25,7 +25,7 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 
-from capucine.plugin import get_config, get_logger, skill
+from lily.plugin import get_config, get_logger, skill
 
 CONFIG_DEFAULTS = {
     "moteur": "searxng",                    # searxng | google | duckduckgo
@@ -35,7 +35,7 @@ CONFIG_DEFAULTS = {
     "resultats": 3,
     "delai_s": 10.0,
     "taille_page_max_ko": 400,
-    "agent": "Capucine/1.0 (assistante vocale locale)",
+    "agent": "Lily/1.0 (assistante vocale locale)",
 }
 
 
@@ -115,7 +115,7 @@ def _url_reelle(href: str) -> str:
 
 def _telecharger(url: str, delai: float, taille_max_ko: int = 400) -> str:
     requete = urllib.request.Request(
-        url, headers={"User-Agent": str(get_config("agent", "Capucine/1.0"))}
+        url, headers={"User-Agent": str(get_config("agent", "Lily/1.0"))}
     )
     with urllib.request.urlopen(requete, timeout=delai) as reponse:  # noqa: S310
         brut = reponse.read(taille_max_ko * 1024)

@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core import plugin as contrat
-from capucine.core.config import PROJECT_ROOT, Config
-from capucine.core.registry import PluginRegistry
+from lily.core import plugin as contrat
+from lily.core.config import PROJECT_ROOT, Config
+from lily.core.registry import PluginRegistry
 
 DOSSIER = PROJECT_ROOT / "plugins"
 

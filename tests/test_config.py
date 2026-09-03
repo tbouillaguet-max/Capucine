@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.config import Config, detect_profile, load_config
-from capucine.core.errors import ConfigError
+from lily.core.config import Config, detect_profile, load_config
+from lily.core.errors import ConfigError
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def test_le_profil_surcharge_les_defauts(dossier_config: Path) -> None:
 def test_l_environnement_surcharge_le_profil(dossier_config: Path) -> None:
     config = load_config(
         profile="pi",
-        environ={"CAPUCINE_LLM__MODEL": "depuis-env", "CAPUCINE_PLUGINS__TIMEOUT": "2.5"},
+        environ={"LILY_LLM__MODEL": "depuis-env", "LILY_PLUGINS__TIMEOUT": "2.5"},
         config_dir=dossier_config,
     )
     assert config.get("llm.model") == "depuis-env"
@@ -46,7 +46,7 @@ def test_l_environnement_surcharge_le_profil(dossier_config: Path) -> None:
 def test_la_ligne_de_commande_surcharge_tout(dossier_config: Path) -> None:
     config = load_config(
         profile="pi",
-        environ={"CAPUCINE_LLM__MODEL": "depuis-env"},
+        environ={"LILY_LLM__MODEL": "depuis-env"},
         overrides={"llm": {"model": "depuis-cli"}},
         config_dir=dossier_config,
     )
@@ -56,12 +56,12 @@ def test_la_ligne_de_commande_surcharge_tout(dossier_config: Path) -> None:
 def test_les_valeurs_d_environnement_sont_typees(dossier_config: Path) -> None:
     config = load_config(
         environ={
-            "CAPUCINE_A__ENTIER": "12",
-            "CAPUCINE_A__FLOTTANT": "0.5",
-            "CAPUCINE_A__VRAI": "oui",
-            "CAPUCINE_A__FAUX": "false",
-            "CAPUCINE_A__LISTE": "un, deux",
-            "CAPUCINE_A__TEXTE": "bonjour",
+            "LILY_A__ENTIER": "12",
+            "LILY_A__FLOTTANT": "0.5",
+            "LILY_A__VRAI": "oui",
+            "LILY_A__FAUX": "false",
+            "LILY_A__LISTE": "un, deux",
+            "LILY_A__TEXTE": "bonjour",
         },
         config_dir=dossier_config,
     )
@@ -101,6 +101,6 @@ def test_le_profil_est_detecte() -> None:
 def test_la_config_livree_est_valide() -> None:
     # Filet contre une faute de frappe dans config/default.toml.
     config = load_config(profile="pc", environ={})
-    assert config.get("assistant.name") == "Capucine"
+    assert config.get("assistant.name") == "Lily"
     assert config.get("llm.engine")
     assert config.plugin_paths()

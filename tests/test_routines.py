@@ -2,7 +2,7 @@
 
 C'est le critère d'acceptation du projet retourné comme un gant. « Déposer un
 fichier dans plugins/ ajoute une capacité, sans redémarrer » — ici, c'est
-Capucine qui dépose le fichier.
+Lily qui dépose le fichier.
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core import plugin as contrat
-from capucine.core.config import PROJECT_ROOT
-from capucine.core.errors import SkillRefused
-from capucine.core.journal import Appel, JournalDesAppels
-from capucine.core.registry import PluginRegistry
+from lily.core import plugin as contrat
+from lily.core.config import PROJECT_ROOT
+from lily.core.errors import SkillRefused
+from lily.core.journal import Appel, JournalDesAppels
+from lily.core.registry import PluginRegistry
 
 PLUGINS_LIVRES = PROJECT_ROOT / "plugins"
 
@@ -82,7 +82,7 @@ def test_une_competence_peut_en_appeler_une_autre(banc) -> None:
 
 
 SERPENT = '''
-from capucine.plugin import appeler_competence, skill
+from lily.plugin import appeler_competence, skill
 
 @skill(description="Une routine qui se rappelle elle-même.", examples=["serpent"])
 def serpent() -> str:
@@ -272,7 +272,7 @@ def test_une_etape_qui_demande_confirmation_arrete_la_routine(banc) -> None:
 def test_la_routine_apparait_sans_redemarrage(banc, tmp_path: Path) -> None:
     """Le vrai test : un observateur de fichiers, comme en fonctionnement."""
     watchdog = pytest.importorskip("watchdog")      # noqa: F841
-    from capucine.core.watcher import PluginWatcher
+    from lily.core.watcher import PluginWatcher
 
     registry = banc["registre"]
     surveillant = PluginWatcher(registry, debounce_ms=50, poll_ms=20)

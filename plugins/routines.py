@@ -1,13 +1,13 @@
 """Apprendre une routine en la montrant, pas en la programmant.
 
 Vous faites trois choses. Vous dites « retiens ça, c'est ma routine du
-matin ». Capucine **écrit un plugin** dans ``plugins/``, le rechargement à
+matin ». Lily **écrit un plugin** dans ``plugins/``, le rechargement à
 chaud le voit passer, et la compétence existe — sans redémarrage, sans que
 personne n'ait touché au cœur.
 
 C'est la contrainte numéro un du projet retournée comme un gant : ajouter une
 capacité, c'est déposer un fichier dans ``plugins/``. Y compris quand c'est
-Capucine qui le dépose.
+Lily qui le dépose.
 
 Deux choses qu'elle ne fait **pas**, délibérément :
 
@@ -30,7 +30,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from capucine.plugin import (
+from lily.plugin import (
     SkillRefused,
     appeler_competence,
     dossier_des_plugins,
@@ -47,7 +47,7 @@ CONFIG_DEFAULTS = {
 
 PREFIXE = "routine_"
 
-GABARIT = '''"""Routine « {titre} », écrite par Capucine le {date}.
+GABARIT = '''"""Routine « {titre} », écrite par Lily le {date}.
 
 Apprise en la montrant : les {nombre} gestes ci-dessous sont ceux qui venaient
 d'être faits quand vous avez dit « retiens cette routine ».
@@ -57,7 +57,7 @@ ajoutez une étape — le rechargement à chaud prendra la nouvelle version.
 Supprimez-le et la routine disparaît.
 """
 
-from capucine.plugin import appeler_competence, skill
+from lily.plugin import appeler_competence, skill
 
 ETAPES = {etapes}
 
@@ -243,7 +243,7 @@ def retenir_cette_routine(nom: str, etapes: int = 0) -> dict:
 
 
 @skill(
-    description="Dit quelles routines Capucine a apprises et ce qu'elles enchaînent.",
+    description="Dit quelles routines Lily a apprises et ce qu'elles enchaînent.",
     examples=["quelles routines tu connais", "mes routines", "montre-moi mes enchaînements"],
 )
 def mes_routines() -> dict:

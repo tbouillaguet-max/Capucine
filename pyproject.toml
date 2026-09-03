@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "capucine"
+name = "lily"
 version = "0.1.0"
 description = "Assistante vocale francophone, 100 % locale, extensible par simple dépôt de fichier"
 readme = "README.md"
@@ -32,7 +32,7 @@ audio = [
 # `silero-vad` n'est volontairement PAS listé ici : le paquet importe torch et
 # torchaudio dès son __init__, y compris sur le chemin ONNX, soit plusieurs
 # centaines de méga-octets sur un Raspberry Pi pour un modèle de moins d'un
-# méga-octet. Capucine charge le fichier silero_vad.onnx livré dans le paquet
+# méga-octet. Lily charge le fichier silero_vad.onnx livré dans le paquet
 # et l'exécute avec onnxruntime. Installez-le donc sans ses dépendances :
 #     pip install --no-deps silero-vad
 # À défaut, le VAD par énergie prend le relais automatiquement.
@@ -58,10 +58,10 @@ reload = ["watchdog>=6,<7"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
-capucine = "main:main"
+lily = "main:main"
 
 [tool.setuptools.packages.find]
-include = ["capucine*"]
+include = ["lily*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

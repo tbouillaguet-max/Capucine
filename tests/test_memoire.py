@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.conversation import Conversation
-from capucine.core.memoire import Memoire
+from lily.core.conversation import Conversation
+from lily.core.memoire import Memoire
 
 
 @pytest.fixture
@@ -116,12 +116,12 @@ def test_la_conversation_s_archive_au_fil_de_l_eau(magasin: Memoire) -> None:
 
 
 def test_les_faits_entrent_dans_le_persona(magasin: Memoire) -> None:
-    fil = Conversation(persona="Tu es Capucine.", memoire=magasin)
-    assert fil.system_prompt() == "Tu es Capucine."
+    fil = Conversation(persona="Tu es Lily.", memoire=magasin)
+    assert fil.system_prompt() == "Tu es Lily."
 
     magasin.retenir("Je préfère les réponses courtes.")
     prompt = fil.system_prompt()
-    assert "Tu es Capucine." in prompt
+    assert "Tu es Lily." in prompt
     assert "réponses courtes" in prompt
 
 

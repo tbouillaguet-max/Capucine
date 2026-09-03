@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.catalogue import Catalogue, _premiere_phrase, _signature, depuis_config
-from capucine.core.config import Config
+from lily.core.catalogue import Catalogue, _premiere_phrase, _signature, depuis_config
+from lily.core.config import Config
 
 MODULE = '''"""Un module d'exemple."""
 

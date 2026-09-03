@@ -1,4 +1,4 @@
-"""Interroger ce que Capucine a lu — documents indexés et conversations passées.
+"""Interroger ce que Lily a lu — documents indexés et conversations passées.
 
 C'est la RAG (*retrieval-augmented generation*), et le mot savant recouvre une
 idée simple : au lieu de demander au modèle ce qu'il croit savoir, on lui
@@ -15,7 +15,7 @@ Sans vectoriseur installé, tout continue de marcher en plein texte : moins
 fin, mais jamais absent. C'est dit à voix haute plutôt que caché.
 """
 
-from capucine.plugin import (
+from lily.plugin import (
     SkillRefused,
     connaissances,
     demander_au_modele,
@@ -119,7 +119,7 @@ def passages_sur(sujet: str, nombre: int = 3) -> dict:
 
 
 @skill(
-    description="Dit ce que Capucine a indexé : combien de documents, de fragments, et lesquels.",
+    description="Dit ce que Lily a indexé : combien de documents, de fragments, et lesquels.",
     examples=[
         "qu'est-ce que tu as indexé",
         "quels documents tu connais",
@@ -162,7 +162,7 @@ def mes_connaissances() -> dict:
 
 
 @skill(
-    description="Retire un document de l'index, ou vide tout ce que Capucine a indexé.",
+    description="Retire un document de l'index, ou vide tout ce que Lily a indexé.",
     examples=[
         "oublie ce document",
         "retire ce rapport de tes connaissances",

@@ -1,4 +1,4 @@
-"""Mémoire : ce que Capucine garde d'une fois sur l'autre.
+"""Mémoire : ce que Lily garde d'une fois sur l'autre.
 
 Ce qu'il montre :
 
@@ -13,7 +13,7 @@ Ce qu'il montre :
 Tout est dans un fichier SQLite sur votre machine. Rien n'en sort.
 """
 
-from capucine.plugin import conversation, get_logger, memoire, skill
+from lily.plugin import conversation, get_logger, memoire, skill
 
 CONFIG_DEFAULTS = {
     "conversations_listees": 5,
@@ -44,7 +44,7 @@ def retenir(fait: str) -> str:
 
 
 @skill(
-    description="Dit ce que Capucine sait de son utilisateur.",
+    description="Dit ce que Lily sait de son utilisateur.",
     examples=["que sais-tu de moi", "qu'est-ce que tu as retenu", "ta mémoire"],
 )
 def ce_que_tu_sais() -> dict:
@@ -82,7 +82,7 @@ def oublier(sujet: str) -> str:
 )
 def mes_conversations() -> dict:
     """Les dernières sessions, avec leur date et leur sujet."""
-    from capucine.plugin import get_config
+    from lily.plugin import get_config
 
     sessions = memoire().sessions(limite=int(get_config("conversations_listees", 5)))
     if not sessions:
@@ -112,7 +112,7 @@ def retrouver(sujet: str) -> dict:
     Args:
         sujet: Le mot ou la phrase à retrouver.
     """
-    from capucine.plugin import get_config
+    from lily.plugin import get_config
 
     extraits = memoire().chercher(sujet, limite=int(get_config("extraits_par_recherche", 4)))
     if not extraits:

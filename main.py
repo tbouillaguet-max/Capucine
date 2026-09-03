@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Point d'entrée de Capucine.
+"""Point d'entrée de Lily.
 
-    python main.py                        # écoute permanente : dites « Capucine »
+    python main.py                        # écoute permanente : dites « Lily »
     python main.py --text                 # boucle clavier, sans micro ni haut-parleur
     python main.py --text --llm mock      # sans aucun modèle de langage
     python main.py --push-to-talk         # [Entrée] pour parler, sans mot d'éveil
@@ -18,17 +18,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from capucine.app import build_assistant, run_text_mode, run_voice_mode  # noqa: E402
-from capucine.core.audio import list_devices  # noqa: E402
-from capucine.core.config import load_config  # noqa: E402
-from capucine.core.errors import CapucineError, EngineUnavailable  # noqa: E402
-from capucine.core.logging import setup_logging  # noqa: E402
+from lily.app import build_assistant, run_text_mode, run_voice_mode  # noqa: E402
+from lily.core.audio import list_devices  # noqa: E402
+from lily.core.config import load_config  # noqa: E402
+from lily.core.errors import EngineUnavailable, LilyError  # noqa: E402
+from lily.core.logging import setup_logging  # noqa: E402
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="capucine",
-        description="Capucine — assistante vocale locale, hors-ligne et extensible par fichiers.",
+        prog="lily",
+        description="Lily — assistante vocale locale, hors-ligne et extensible par fichiers.",
     )
     parser.add_argument("--text", action="store_true",
                         help="mode clavier : court-circuite micro et haut-parleur")
@@ -63,7 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ecoute.add_argument("--no-wake", action="store_true",
                         help="écoute permanente sans mot d'éveil (VAD seul)")
     ecoute.add_argument("--barge-in", choices=["voix", "eveil", "off"],
-                        help="ce qui autorise à couper la parole à Capucine")
+                        help="ce qui autorise à couper la parole à Lily")
 
     audio = parser.add_argument_group("audio")
     audio.add_argument("--devices", action="store_true",
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     except EngineUnavailable as exc:
         print(f"Étage audio indisponible : {exc}", file=sys.stderr)
         return 3
-    except CapucineError as exc:
+    except LilyError as exc:
         print(f"Erreur de configuration : {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:

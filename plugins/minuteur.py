@@ -16,7 +16,7 @@ import math
 import threading
 import time
 
-from capucine.plugin import announce, get_logger, skill
+from lily.plugin import announce, get_logger, skill
 
 CONFIG_DEFAULTS = {
     "duree_max_minutes": 180,
@@ -89,7 +89,7 @@ def minuteur(minutes: int = 0, secondes: int = 0, libelle: str = "minuteur") -> 
         secondes: Secondes supplémentaires.
         libelle: À quoi sert ce minuteur, pour le retrouver et l'annoncer.
     """
-    from capucine.plugin import get_config
+    from lily.plugin import get_config
 
     total = int(minutes) * 60 + int(secondes)
     if total <= 0:

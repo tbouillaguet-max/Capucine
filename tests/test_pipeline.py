@@ -10,16 +10,16 @@ import asyncio
 import contextlib
 import json
 
-from capucine.app import build_assistant
-from capucine.core.config import Config
-from capucine.core.conversation import Conversation, load_persona
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.pipeline import Pipeline, State
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import NO_TOOL, Router
+from lily.app import build_assistant
+from lily.core.config import Config
+from lily.core.conversation import Conversation, load_persona
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.pipeline import Pipeline, State
+from lily.core.registry import PluginRegistry
+from lily.core.router import NO_TOOL, Router
 
 PLUGIN_HEURE = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Donne l'heure.", examples=["quelle heure est-il"])
 def heure() -> str:
@@ -68,7 +68,7 @@ def test_un_tour_sans_outil_passe_par_la_conversation(ecrire_plugin, dossier_plu
 
 def test_un_plugin_en_echec_donne_une_reponse_pas_une_exception(ecrire_plugin, dossier_plugins) -> None:
     ecrire_plugin("casse.py", '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Explose.", examples=["fais tout planter"])
 def exploser() -> str:
@@ -108,7 +108,7 @@ def test_la_memoire_courte_est_bornee(ecrire_plugin, dossier_plugins) -> None:
 def test_un_tour_peut_etre_annule_c_est_le_barge_in(ecrire_plugin, dossier_plugins) -> None:
     ecrire_plugin("lent.py", '''
 import time
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Prend son temps.", examples=["prends ton temps"], timeout=5)
 def lambiner() -> str:
@@ -129,14 +129,14 @@ def lambiner() -> str:
     assert asyncio.run(scenario()) is True
 
 
-def test_un_plugin_peut_interrompre_capucine_depuis_une_tache_de_fond(
+def test_un_plugin_peut_interrompre_lily_depuis_une_tache_de_fond(
     ecrire_plugin, dossier_plugins
 ) -> None:
     # C'est le mécanisme dont aura besoin le minuteur : la tâche de fond n'a
     # personne à qui répondre, elle doit pouvoir interrompre.
     ecrire_plugin("sonnette.py", '''
 import threading
-from capucine.plugin import announce, skill
+from lily.plugin import announce, skill
 
 @skill(description="Sonne plus tard.", examples=["sonne dans un instant"])
 def sonner() -> str:
@@ -223,9 +223,9 @@ def test_l_assistant_complet_se_monte_depuis_une_config(tmp_path) -> None:
 
 
 def test_le_persona_livre_est_lisible() -> None:
-    from capucine.core.config import PROJECT_ROOT
+    from lily.core.config import PROJECT_ROOT
 
     persona = load_persona(PROJECT_ROOT / "config" / "persona.txt")
-    assert "Capucine" in persona
+    assert "Lily" in persona
     persona_absent = load_persona(PROJECT_ROOT / "config" / "inexistant.txt")
-    assert "Capucine" in persona_absent   # repli, jamais de plantage
+    assert "Lily" in persona_absent   # repli, jamais de plantage

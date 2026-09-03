@@ -61,7 +61,7 @@ def test_l_interpreteur_du_projet_est_prefere(tmp_path: Path) -> None:
     """Le défaut qui notait en échec un code parfaitement correct.
 
     Le modèle avait écrit le bon import et le bon appel ; la vérification
-    tournait avec le Python de Capucine, sans pandas, et rendait
+    tournait avec le Python de Lily, sans pandas, et rendait
     « ModuleNotFoundError ». Le banc mesurait la coïncidence de deux
     installations, pas le modèle.
     """
@@ -74,7 +74,7 @@ def test_un_venv_windows_est_reconnu(tmp_path: Path) -> None:
     assert interpreteur_du_projet(tmp_path) == str(attendu)
 
 
-def test_sans_environnement_on_garde_celui_de_capucine(tmp_path: Path) -> None:
+def test_sans_environnement_on_garde_celui_de_lily(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("", encoding="utf-8")
     assert interpreteur_du_projet(tmp_path) == sys.executable
 

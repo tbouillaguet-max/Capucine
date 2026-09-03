@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from capucine.core.logging import LatencyBook, TurnTelemetry, get_latency_book
+from lily.core.logging import LatencyBook, TurnTelemetry, get_latency_book
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ def _charger_outil():
     import importlib.util
     import sys
 
-    from capucine.core.config import PROJECT_ROOT
+    from lily.core.config import PROJECT_ROOT
 
     chemin = PROJECT_ROOT / "tools" / "mesurer_latence.py"
     spec = importlib.util.spec_from_file_location("mesurer_latence", chemin)

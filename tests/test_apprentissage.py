@@ -1,4 +1,4 @@
-"""Ce que Capucine apprend de vous : formulations, corrections, vocabulaire."""
+"""Ce que Lily apprend de vous : formulations, corrections, vocabulaire."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from capucine.core.apprentissage import Apprentissage, depuis_config
-from capucine.core.config import Config
-from capucine.core.conversation import Conversation
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.pipeline import Pipeline
-from capucine.core.plugin import SkillDeclaration, build_skill_spec
-from capucine.core.registry import PluginRegistry
-from capucine.core.router import NO_TOOL, Router
-from capucine.core.text import est_une_correction
+from lily.core.apprentissage import Apprentissage, depuis_config
+from lily.core.config import Config
+from lily.core.conversation import Conversation
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.pipeline import Pipeline
+from lily.core.plugin import SkillDeclaration, build_skill_spec
+from lily.core.registry import PluginRegistry
+from lily.core.router import NO_TOOL, Router
+from lily.core.text import est_une_correction
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ def _spec(fonction, description, exemples):
     return build_skill_spec(
         fonction,
         SkillDeclaration(description, tuple(exemples), None, None, False, False),
-        module="capucine.plugins.essai", source=Path("essai.py"), plugin="essai",
+        module="lily.plugins.essai", source=Path("essai.py"), plugin="essai",
     )
 
 
@@ -143,7 +143,7 @@ def test_reconnaitre_une_correction(phrase, attendu) -> None:
 
 
 PLUGIN = '''
-from capucine.plugin import skill
+from lily.plugin import skill
 
 @skill(description="Donne l'heure.", examples=["quelle heure est-il"])
 def heure() -> str:
@@ -272,20 +272,20 @@ def test_un_mot_n_est_moissonne_qu_une_fois(magasin: Apprentissage) -> None:
 
 def test_l_amorce_de_transcription_contient_le_vocabulaire(magasin: Apprentissage) -> None:
     magasin.moissonner("Le dépôt CalculRisque_Mark5 et la SEC")
-    amorce = magasin.amorce_stt("Capucine, assistante vocale.")
-    assert amorce.startswith("Capucine, assistante vocale.")
+    amorce = magasin.amorce_stt("Lily, assistante vocale.")
+    assert amorce.startswith("Lily, assistante vocale.")
     assert "CalculRisque_Mark5" in amorce and "SEC" in amorce
 
 
 def test_le_vocabulaire_est_souffle_a_la_transcription(
     ecrire_plugin, dossier_plugins, magasin
 ) -> None:
-    from capucine.core.audio import AudioBuffer
-    from capucine.core.engines.stt.scripted import ScriptedSTT
-    from capucine.core.logging import TurnTelemetry
+    from lily.core.audio import AudioBuffer
+    from lily.core.engines.stt.scripted import ScriptedSTT
+    from lily.core.logging import TurnTelemetry
 
     class STTAmorcable(ScriptedSTT):
-        initial_prompt = "Capucine, assistante vocale."
+        initial_prompt = "Lily, assistante vocale."
 
     ecrire_plugin("essai.py", PLUGIN)
     stt = STTAmorcable(["quelle heure est-il"])
@@ -299,11 +299,11 @@ def test_le_vocabulaire_est_souffle_a_la_transcription(
 
     asyncio.run(pipeline.transcribe(AudioBuffer(b"\x00\x00" * 8000, 16000), TurnTelemetry()))
     assert "CalculRisque_Mark5" in stt.initial_prompt
-    assert stt.initial_prompt.startswith("Capucine, assistante vocale.")
+    assert stt.initial_prompt.startswith("Lily, assistante vocale.")
 
 
 def test_un_mot_courant_n_encombre_pas_le_vocabulaire(magasin: Apprentissage) -> None:
-    assert not magasin.retenir_mot("Capucine")
+    assert not magasin.retenir_mot("Lily")
     assert not magasin.retenir_mot("ok")
 
 

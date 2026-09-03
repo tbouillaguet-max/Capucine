@@ -1,43 +1,43 @@
-# Configuration de référence de Capucine.
+# Configuration de référence de Lily.
 # Elle est chargée en premier, puis surchargée par le profil (pc.toml ou
-# pi.toml), puis par les variables d'environnement CAPUCINE_SECTION__CLE,
+# pi.toml), puis par les variables d'environnement LILY_SECTION__CLE,
 # puis par les options de ligne de commande.
 
 language = "fr"
 
 [assistant]
-name = "Capucine"
+name = "Lily"
 persona_file = "config/persona.txt"
 memory_turns = 6            # nombre de tours conservés en mémoire courte
-follow_up_seconds = 8.0     # fenêtre du mode suivi, sans redire « Capucine » (étape 3)
+follow_up_seconds = 8.0     # fenêtre du mode suivi, sans redire « Lily » (étape 3)
 announce_new_skills = true  # annonce vocale des compétences nouvellement chargées
 
 [plugins]
 # Les plugins vivent à la racine du dépôt, pas dans le paquet installé.
 # Ajoutez vos propres dossiers ici : ils sont fouillés dans l'ordre, un dossier
 # ultérieur masquant un même nom de fichier.
-paths = ["./plugins", "~/.capucine/plugins"]
+paths = ["./plugins", "~/.lily/plugins"]
 timeout = 10.0              # délai par défaut d'un skill, en secondes
 # Marge ajoutée au délai pour @skill(isolate=True), le temps que l'interpréteur
 # enfant démarre. Montez-la si un Pi lent voit ses compétences isolées tuées
 # avant d'avoir commencé.
 isolate_startup_s = 3.0
 quarantine_after = 3        # échecs consécutifs avant désactivation d'un skill
-data_dir = "~/.capucine/data"
+data_dir = "~/.lily/data"
 hot_reload = true           # surveillance du dossier (étape 4)
 debounce_ms = 500
 
 [memoire]
-# Ce que Capucine garde entre deux démarrages : l'historique des conversations
+# Ce que Lily garde entre deux démarrages : l'historique des conversations
 # (reprenables) et les faits durables qu'elle sait de vous. Un fichier SQLite,
 # sur votre machine, qui n'en sort jamais.
 active = true
-fichier = "~/.capucine/memoire.sqlite"
+fichier = "~/.lily/memoire.sqlite"
 messages_repris = 12        # tours rechargés quand on reprend une conversation
 reprendre_au_demarrage = false   # true = enchaîner sur la dernière conversation
 
 [apprentissage]
-# Ce que Capucine retient de VOUS, sans jamais réentraîner un modèle : des
+# Ce que Lily retient de VOUS, sans jamais réentraîner un modèle : des
 # tables et des compteurs, dans le même fichier SQLite que la mémoire.
 active = true
 routage = true          # retenir vos formulations : elle route mieux avec le temps
@@ -48,15 +48,15 @@ mots_vocabulaire = 40
 
 [corpus]
 # Le corpus d'éveil : les deux secondes de son qui précèdent chaque
-# déclenchement de « Capucine », gardées pour réentraîner le modèle sur VOTRE
+# déclenchement de « Lily », gardées pour réentraîner le modèle sur VOTRE
 # voix — et surtout sur vos faux déclenchements, qui ne s'inventent pas en
-# studio. Voir tools/entrainer_capucine.py.
+# studio. Voir tools/entrainer_lily.py.
 #
 # ÉTEINT PAR DÉFAUT, et ce n'est pas un oubli : écrire du son sur un disque
 # est une décision qui vous appartient. Allumé, seule la fenêtre du mot
 # d'éveil est gardée — jamais ce que vous dites ensuite.
 actif = false
-dossier = "~/.capucine/corpus"
+dossier = "~/.lily/corpus"
 secondes_avant = 1.6
 secondes_apres = 0.4
 maximum_par_classe = 300   # au-delà, les plus anciens extraits sont effacés
@@ -88,7 +88,7 @@ active = true
 engine = "auto"         # auto (Ollama s'il est là) | ollama | llamacpp | hachage | aucun
 model = "nomic-embed-text"       # 274 Mo : ollama pull nomic-embed-text
 host = "http://127.0.0.1:11434"  # bouclage obligatoire, comme pour le dialogue
-# model_path = "~/.capucine/models/nomic-embed-text-v1.5.Q4_K_M.gguf"  # engine = "llamacpp"
+# model_path = "~/.lily/models/nomic-embed-text-v1.5.Q4_K_M.gguf"  # engine = "llamacpp"
 taille_fragment = 900   # caractères par fragment indexé
 recouvrement = 150      # pour qu'une réponse à cheval sur deux fragments survive
 passages_rendus = 5     # combien de passages sont montrés au modèle
@@ -96,7 +96,7 @@ indexer_les_conversations = true   # chaque tour rejoint l'index, en tâche de f
 fragments_max = 50000   # au-delà, le balayage traîne : elle le dit au lieu de ralentir
 
 [atelier]
-# Les dossiers que Capucine a le droit de lire et d'écrire.
+# Les dossiers que Lily a le droit de lire et d'écrire.
 #
 # VIDE PAR DÉFAUT, et ce n'est pas un oubli : la commande arrive par la voix,
 # une transcription est imparfaite, et un modèle choisit parfois mal ses
@@ -106,7 +106,7 @@ racines = []
 # racines = ["~/projets", "~/Documents/notes"]
 lecture_seule = false       # true = elle lit et n'écrit jamais
 taille_max_ko = 512         # au-delà, elle refuse de lire un fichier d'un bloc
-corbeille = "~/.capucine/corbeille"   # rien n'est supprimé, tout y est déplacé
+corbeille = "~/.lily/corbeille"   # rien n'est supprimé, tout y est déplacé
 
 [llm]
 engine = "ollama"           # ollama | llamacpp | mock
@@ -141,8 +141,8 @@ min_rms = 0.006
 min_duration_s = 0.25
 drop_hallucinations = true
 vad_filter = false          # le VAD du pipeline s'en charge (étape 3)
-# Amorce le vocabulaire : sans elle, « Capucine » devient « capucin » ou « ca pue ».
-initial_prompt = "Capucine, assistante vocale. Minuteur, notes, météo, volume, heure."
+# Amorce le vocabulaire : sans elle, « Lily » devient « Lili », « lilas » ou « il y a ».
+initial_prompt = "Lily, assistante vocale. Minuteur, notes, météo, volume, heure."
 
 [tts]
 engine = "piper"            # piper | silent
@@ -153,16 +153,16 @@ volume = 1.0
 
 [wake]
 # openwakeword | vosk | scripted. Il n'existe pas de modèle pré-entraîné pour
-# « capucine » : tant qu'il n'est pas entraîné (tools/entrainer_capucine.py),
+# « lily » : tant qu'il n'est pas entraîné (tools/entrainer_lily.py),
 # le repli Vosk à grammaire restreinte prend automatiquement le relais.
 engine = "openwakeword"
-word = "capucine"
+word = "lily"
 threshold = 0.5
 models_dir = "models/wake"
 inference_framework = "onnx"   # onnxruntime s'installe partout, tflite non
 debounce_s = 2.0               # silence après déclenchement, pour ne pas re-détecter
 vosk_model_path = "models/vosk/vosk-model-small-fr-0.22"
-variants = ["capucine", "capucin", "ma capucine"]
+variants = ["lily", "lili", "ma lily"]
 
 [vad]
 engine = "silero"           # silero | energie | scripted
@@ -176,9 +176,9 @@ min_total_speech_ms = 300   # en dessous, c'est un bruit, pas une phrase
 models_dir = "models/silero"
 
 [barge_in]
-# Ce qui autorise l'utilisateur à couper la parole à Capucine.
+# Ce qui autorise l'utilisateur à couper la parole à Lily.
 #   voix  : toute parole soutenue l'interrompt (défaut)
-#   eveil : seul « Capucine » l'interrompt — beaucoup plus sûr sur haut-parleur,
+#   eveil : seul « Lily » l'interrompt — beaucoup plus sûr sur haut-parleur,
 #           où le micro entend la réponse en cours
 #   off   : elle finit toujours sa phrase
 mode = "voix"

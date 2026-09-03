@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Banc de mesure : lequel des trois leviers fait vraiment coder Capucine ?
+"""Banc de mesure : lequel des trois leviers fait vraiment coder Lily ?
 
     python tools/banc_de_code.py --atelier ~/projets/CalculRisque_Mark5
     python tools/banc_de_code.py --atelier … --variantes          # les quatre combinaisons
@@ -61,11 +61,11 @@ class Resultat:
 
 
 def interpreteur_du_projet(depot: Path, impose: Path | None = None) -> str:
-    """Le Python qui a les dépendances DU PROJET, pas celles de Capucine.
+    """Le Python qui a les dépendances DU PROJET, pas celles de Lily.
 
     Sans ça, un code parfaitement correct — qui importe la bonne fonction du
     projet et l'appelle bien — est noté en échec sur un
-    « ModuleNotFoundError: No module named 'pandas' » : Capucine tourne dans
+    « ModuleNotFoundError: No module named 'pandas' » : Lily tourne dans
     son environnement, le projet dans le sien. Le banc mesurerait alors la
     coïncidence de deux installations, pas le modèle.
 
@@ -89,7 +89,7 @@ def charger_les_taches(chemin: Path) -> list[Tache]:
     return [Tache(**entree) for entree in donnees.get("tache", [])]
 
 
-# --- montage minimal de Capucine -------------------------------------------
+# --- montage minimal de Lily -------------------------------------------
 
 def monter(
     atelier_chemin: Path, llm: str, modele: str, catalogue_actif: bool,
@@ -100,15 +100,15 @@ def monter(
 
     On passe par les VRAIES compétences (`ecrire_du_code`, `coder_et_verifier`)
     plutôt que de réimplémenter la boucle ici — sans quoi le banc mesurerait
-    autre chose que ce que Capucine fait.
+    autre chose que ce que Lily fait.
     """
-    from capucine.core import plugin as contrat
-    from capucine.core.atelier import depuis_config as atelier_depuis_config
-    from capucine.core.catalogue import Catalogue
-    from capucine.core.config import PROJECT_ROOT, load_config
-    from capucine.core.engines.factory import build_llm
-    from capucine.core.interfaces.llm import Message
-    from capucine.core.registry import PluginRegistry
+    from lily.core import plugin as contrat
+    from lily.core.atelier import depuis_config as atelier_depuis_config
+    from lily.core.catalogue import Catalogue
+    from lily.core.config import PROJECT_ROOT, load_config
+    from lily.core.engines.factory import build_llm
+    from lily.core.interfaces.llm import Message
+    from lily.core.registry import PluginRegistry
 
     # Un banc n'est pas un tour de parole : les délais taillés pour la voix
     # (60 s côté client Ollama, 120 s côté compétence) coupent une génération
@@ -157,7 +157,7 @@ def monter(
 
 
 def demonter(registre) -> None:
-    from capucine.core import plugin as contrat
+    from lily.core import plugin as contrat
 
     for nom in list(registre.plugins):
         registre.unload(nom, notify=False)
@@ -206,11 +206,11 @@ def passer_une_tache(
         return Resultat(tache.nom, tache.famille, False, f"compétence en erreur : {erreur}",
                         time.perf_counter() - depart, 0)
 
-    from capucine.core import plugin as contrat
+    from lily.core import plugin as contrat
 
     code = ""
     api = ""
-    module = sys.modules.get("capucine.plugins.python")
+    module = sys.modules.get("lily.plugins.python")
     if module is not None:
         proposition = getattr(module, "_PROPOSITION", {})
         code = proposition.get("code", "")
@@ -303,7 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", type=Path, help="écrit les résultats bruts")
     args = parser.parse_args(argv)
 
-    from capucine.core.logging import setup_logging
+    from lily.core.logging import setup_logging
 
     setup_logging(level="WARNING")
     if not args.verbeux:
@@ -311,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
         # complète du registre par-dessus noierait le tableau.
         import logging
 
-        logging.getLogger("capucine.registre").setLevel(logging.CRITICAL)
+        logging.getLogger("lily.registre").setLevel(logging.CRITICAL)
 
     depot = args.atelier.expanduser().resolve()
     if not depot.is_dir():
@@ -346,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if titre == combinaisons[0][0]:
                 print(f"modèle : {moteur.describe()}   dépôt : {depot}")
-                marque = "" if python != sys.executable else "  (celui de Capucine)"
+                marque = "" if python != sys.executable else "  (celui de Lily)"
                 print(f"python : {python}{marque}")
                 print(
                     f"{len(taches)} tâches × {len(combinaisons)} configuration(s) — "

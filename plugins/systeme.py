@@ -10,7 +10,7 @@ Ce qu'il montre :
 * du code qui **diffère selon la plateforme**, sans que le cœur en sache rien.
   Le même fichier tourne sur le PC Windows et sur le Raspberry Pi ;
 * l'appel de commandes externes avec un délai, pour qu'un outil absent ou
-  bloqué ne fige pas Capucine.
+  bloqué ne fige pas Lily.
 """
 
 import platform
@@ -19,7 +19,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from capucine.plugin import get_logger, skill
+from lily.plugin import get_logger, skill
 
 CONFIG_DEFAULTS = {
     "delai_commande_s": 3.0,
@@ -185,7 +185,7 @@ def volume(niveau: int = -1) -> dict:
         niveau: Le volume voulu, de 0 à 100. Laissé à -1, le volume est
             seulement lu.
     """
-    from capucine.plugin import get_config
+    from lily.plugin import get_config
 
     delai = float(get_config("delai_commande_s", 3.0))
 

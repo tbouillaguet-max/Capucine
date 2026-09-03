@@ -10,14 +10,14 @@ from typing import Annotated, Literal
 
 import pytest
 
-from capucine.core.errors import ArgumentError, SchemaError
-from capucine.core.schema import (
+from lily.core.errors import ArgumentError, SchemaError
+from lily.core.schema import (
     build_parameters_schema,
     build_tool_schema,
     coerce_arguments,
     parse_docstring,
 )
-from capucine.core.text import extract_numbers, parse_french_number
+from lily.core.text import extract_numbers, parse_french_number
 
 
 def test_le_schema_vient_de_la_signature() -> None:

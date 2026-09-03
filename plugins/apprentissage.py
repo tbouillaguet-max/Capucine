@@ -1,4 +1,4 @@
-"""Ce que Capucine a appris de vous, et comment le lui faire oublier.
+"""Ce que Lily a appris de vous, et comment le lui faire oublier.
 
 Ce plugin ne fait rien apprendre : l'apprentissage se produit tout seul, au
 fil des tours, dans le cœur. Il ouvre seulement une fenêtre dessus — voir,
@@ -6,7 +6,7 @@ corriger, oublier. Une mémoire qu'on ne peut pas inspecter est une mémoire à
 laquelle on ne peut pas faire confiance.
 """
 
-from capucine.plugin import apprentissage, corpus, get_config, skill
+from lily.plugin import apprentissage, corpus, get_config, skill
 
 CONFIG_DEFAULTS = {
     "exemples_montres": 6,
@@ -15,7 +15,7 @@ CONFIG_DEFAULTS = {
 
 
 @skill(
-    description="Dit ce que Capucine a appris de votre façon de parler.",
+    description="Dit ce que Lily a appris de votre façon de parler.",
     examples=[
         "qu'est-ce que tu as appris",
         "qu'as-tu retenu de ma façon de parler",
@@ -53,7 +53,7 @@ def ce_que_tu_as_appris() -> dict:
 
 
 @skill(
-    description="Dit quels mots de vocabulaire Capucine souffle à la transcription.",
+    description="Dit quels mots de vocabulaire Lily souffle à la transcription.",
     examples=["quel vocabulaire tu connais", "quels mots tu souffles à whisper", "ton vocabulaire"],
 )
 def mon_vocabulaire() -> dict:
@@ -89,7 +89,7 @@ def retenir_ce_mot(mot: str) -> str:
 
 
 @skill(
-    description="Fait oublier à Capucine ce qu'elle a appris d'une compétence ou d'un mot.",
+    description="Fait oublier à Lily ce qu'elle a appris d'une compétence ou d'un mot.",
     examples=[
         "oublie ce que tu as appris sur le minuteur",
         "efface ton apprentissage",
@@ -121,7 +121,7 @@ def oublier_l_apprentissage(sujet: str = "") -> str:
 # --- le corpus d'éveil : apprendre votre voix -------------------------------
 
 @skill(
-    description="Dit combien d'extraits d'éveil Capucine a gardés pour réapprendre votre voix.",
+    description="Dit combien d'extraits d'éveil Lily a gardés pour réapprendre votre voix.",
     examples=[
         "où en est ton corpus d'éveil",
         "combien de fois tu t'es réveillée pour rien",
@@ -155,7 +155,7 @@ def mon_corpus_d_eveil() -> dict:
             f"({etat.taux_de_faux_positifs:.0%} des déclenchements)\n"
             f"{etat.en_attente} en attente d'étiquetage\n"
             f"dossier : {etat.dossier}\n\n"
-            "Pour réentraîner : python tools/entrainer_capucine.py entrainer "
+            "Pour réentraîner : python tools/entrainer_lily.py entrainer "
             "--corpus " + str(etat.dossier)
         ),
     }

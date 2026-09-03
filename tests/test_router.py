@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from capucine.core.engines.llm.mock import MockLLM
-from capucine.core.plugin import SkillDeclaration, build_skill_spec
-from capucine.core.router import NO_TOOL, Router
+from lily.core.engines.llm.mock import MockLLM
+from lily.core.plugin import SkillDeclaration, build_skill_spec
+from lily.core.router import NO_TOOL, Router
 
 
 def fabriquer(func, description="", examples=()):
@@ -20,7 +20,7 @@ def fabriquer(func, description="", examples=()):
         description=description, examples=tuple(examples), name=None, timeout=None, confirm=False
     )
     return build_skill_spec(
-        func, declaration, module="capucine.plugins.test", source=Path("test.py"), plugin="test"
+        func, declaration, module="lily.plugins.test", source=Path("test.py"), plugin="test"
     )
 
 
@@ -53,7 +53,7 @@ CATALOGUE = {s.name: s for s in (DES, HEURE, ECHO, MINUTEUR)}
 
 
 def test_le_critere_d_acceptation_ne_sollicite_pas_le_modele() -> None:
-    # « Capucine, lance un dé à vingt faces » doit marcher sans que le LLM
+    # « Lily, lance un dé à vingt faces » doit marcher sans que le LLM
     # ait son mot à dire : c'est ce qui rend la démonstration fiable.
     llm = MockLLM()
     routeur = Router(llm)
