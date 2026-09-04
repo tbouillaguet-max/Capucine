@@ -159,6 +159,7 @@ def build_assistant(
         shortlist_threshold=float(router_options.get("shortlist_threshold", 0.35)),
         shortlist_size=int(router_options.get("shortlist_size", 5)),
         allow_number_extraction=bool(router_options.get("number_extraction", True)),
+        skip_selection=bool(router_options.get("sauter_la_selection", True)),
     )
 
     memoire = memoire_depuis_config(config)

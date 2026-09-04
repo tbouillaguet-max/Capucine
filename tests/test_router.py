@@ -92,12 +92,41 @@ def test_l_ambiguite_numerique_est_renvoyee_au_modele() -> None:
     assert decision.tool_call.arguments == {"minutes": 5, "secondes": 30}
 
 
-def test_un_argument_obligatoire_passe_par_le_modele() -> None:
-    llm = MockLLM([json.dumps({"outil": "repete"}), json.dumps({"texte": "bonjour"})])
+def test_un_argument_obligatoire_ne_coute_qu_un_appel_au_modele() -> None:
+    """« répète après moi bonjour » : l'outil, le score le connaît ; l'argument,
+    non — et il ne se devine pas depuis un gabarit. On ne demande donc au
+    modèle QUE l'extraction, pas le choix de l'outil qui est déjà fait.
+
+    C'est ce qui rend l'apprentissage du routage utile pour la moitié du
+    catalogue : sans cela, une compétence à argument obligatoire payait deux
+    appels à chaque tour, quoi qu'on ait retenu de vos formulations."""
+    llm = MockLLM([json.dumps({"texte": "bonjour"})])
     decision = Router(llm).route("répète après moi bonjour", CATALOGUE)
-    assert decision.tier == "llm"
+    assert decision.tier == "regle_arguments"
     assert decision.tool_call.name == "repete"
     assert decision.tool_call.arguments == {"texte": "bonjour"}
+    assert len(llm.calls) == 1, "la passe de sélection n'avait pas lieu d'être"
+    # Le seul appel est bien l'extraction, contrainte par le schéma du skill.
+    assert "texte" in llm.calls[0]["json_schema"]["properties"]
+
+
+def test_on_peut_rendre_au_modele_son_droit_de_veto() -> None:
+    """`sauter_la_selection = false` restaure les deux passes : le modèle peut
+    de nouveau répondre « aucun » malgré un score élevé."""
+    llm = MockLLM([json.dumps({"outil": "repete"}), json.dumps({"texte": "bonjour"})])
+    decision = Router(llm, skip_selection=False).route("répète après moi bonjour", CATALOGUE)
+    assert decision.tier == "llm"
+    assert decision.tool_call.arguments == {"texte": "bonjour"}
+    assert len(llm.calls) == 2
+
+
+def test_un_score_trop_bas_passe_toujours_par_la_selection() -> None:
+    """Le raccourci ne s'applique qu'au-dessus de `direct_threshold` : en
+    dessous, rien n'est tranché et le modèle choisit comme avant."""
+    llm = MockLLM([json.dumps({"outil": "repete"}), json.dumps({"texte": "ça"})])
+    decision = Router(llm).route("fais ça pour moi tout de suite", CATALOGUE)
+    assert decision.tier == "llm"
+    assert len(llm.calls) == 2
 
 
 def test_le_choix_de_l_outil_est_contraint_par_une_enumeration() -> None:

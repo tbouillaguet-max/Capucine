@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
+from lily.core.apprentissage import Apprentissage
 from lily.core.conversation import Conversation
 from lily.core.engines.llm.mock import MockLLM
+from lily.core.journal import JournalDesAppels
 from lily.core.pipeline import Pipeline
 from lily.core.registry import PluginRegistry
 from lily.core.router import Router
@@ -31,6 +34,19 @@ def compter() -> str:
 '''
 
 
+PLUGIN_IRREVERSIBLE = '''
+from lily.plugin import skill
+
+@skill(
+    description="Supprime définitivement le contenu du bac.",
+    examples=["vide le bac"],
+    confirm="Voulez-vous vraiment que je vide le bac ?",
+)
+def tout_effacer() -> str:
+    return "C'est vidé."
+'''
+
+
 def monter(dossier, llm=None):
     registry = PluginRegistry([dossier], data_root=dossier.parent / "data")
     registry.load_all()
@@ -39,6 +55,20 @@ def monter(dossier, llm=None):
         Conversation(persona="persona de test", max_turns=4),
     )
     return pipeline, registry
+
+
+def _pipeline(dossier, llm, magasin, journal=None):
+    """Un pipeline branché sur un magasin d'apprentissage, pour observer ce
+    qu'il retient — et à quel moment."""
+    registry = PluginRegistry([dossier], data_root=dossier.parent / "data")
+    registry.load_all()
+    return Pipeline(
+        registry,
+        Router(llm, apprentissage=magasin, direct_threshold=0.99),
+        Conversation(persona="persona de test", max_turns=4),
+        apprentissage=magasin,
+        journal=journal,
+    )
 
 
 def test_une_action_irreversible_pose_une_question(ecrire_plugin, dossier_plugins) -> None:
@@ -126,3 +156,60 @@ def test_lecture_des_accords_et_des_refus() -> None:
     # « Non, plutôt trois minutes » est une nouvelle demande, pas un refus sec.
     assert accord_ou_refus("non plutôt trois minutes") is None
     assert accord_ou_refus("") is None
+
+
+def test_un_refus_ne_laisse_aucun_routage_appris(tmp_path, ecrire_plugin, dossier_plugins) -> None:
+    """Le garde-fou annoncé : « un tour raté n'apprend rien ».
+
+    Une compétence `confirm=` rend pourtant un résultat `ok=True` au moment où
+    elle POSE sa question — et l'apprentissage se déclenchait là, avant toute
+    réponse. Un « non » de correction laissait donc le mauvais routage en
+    place, à défaire à la main.
+    """
+    ecrire_plugin("dangereux.py", PLUGIN_IRREVERSIBLE)
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    llm = MockLLM([json.dumps({"outil": "tout_effacer"}), "{}"])
+    pipeline = _pipeline(dossier_plugins, llm, magasin)
+
+    question = asyncio.run(pipeline.handle("débarrasse-moi de tout ce fouillis"))
+    assert "vraiment" in question.speak.lower()
+    assert magasin.statistiques()["phrases"] == 0, "rien n'est encore fait, rien à apprendre"
+
+    refus = asyncio.run(pipeline.handle("non"))
+    assert refus.speak == "Très bien, je n'ai rien fait."
+    assert magasin.statistiques()["phrases"] == 0, "un refus ne doit rien laisser derrière lui"
+
+
+def test_un_accord_apprend_la_phrase_d_origine(tmp_path, ecrire_plugin, dossier_plugins) -> None:
+    """Et le pendant : c'est le « oui » qui transforme une intention en geste.
+
+    La phrase retenue est celle qui a déclenché la question, pas le « oui » —
+    c'est elle qui reviendra la prochaine fois.
+    """
+    ecrire_plugin("dangereux.py", PLUGIN_IRREVERSIBLE)
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    llm = MockLLM([json.dumps({"outil": "tout_effacer"}), "{}"])
+    pipeline = _pipeline(dossier_plugins, llm, magasin)
+
+    asyncio.run(pipeline.handle("débarrasse-moi de tout ce fouillis"))
+    accord = asyncio.run(pipeline.handle("oui"))
+    assert accord.skill_result.ok
+
+    apprises = magasin.phrases_par_outil()
+    assert list(apprises) == ["tout_effacer"]
+    assert apprises["tout_effacer"][0].phrase == "débarrasse-moi de tout ce fouillis"
+
+
+def test_un_geste_confirme_entre_au_journal(tmp_path, ecrire_plugin, dossier_plugins) -> None:
+    """Le journal sert à « retiens cette routine » : un geste réellement
+    exécuté doit s'y trouver, même s'il a fallu un accord pour l'obtenir."""
+    ecrire_plugin("dangereux.py", PLUGIN_IRREVERSIBLE)
+    journal = JournalDesAppels(5)
+    llm = MockLLM([json.dumps({"outil": "tout_effacer"}), "{}"])
+    pipeline = _pipeline(dossier_plugins, llm, Apprentissage(tmp_path / "m.sqlite"),
+                         journal=journal)
+
+    asyncio.run(pipeline.handle("débarrasse-moi de tout ce fouillis"))
+    assert len(journal) == 0, "poser une question n'est pas un geste"
+    asyncio.run(pipeline.handle("oui"))
+    assert [appel.competence for appel in journal.recents()] == ["tout_effacer"]

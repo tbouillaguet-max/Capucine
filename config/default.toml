@@ -125,6 +125,12 @@ direct_threshold = 0.72     # au-dessus, l'étage déterministe décide seul
 shortlist_threshold = 0.35  # en-dessous, l'outil n'est même pas proposé au modèle
 shortlist_size = 5
 number_extraction = true    # « à vingt faces » -> faces=20, sans solliciter le modèle
+# Quand le score dépasse direct_threshold mais que les arguments ne se
+# devinent pas — « note que je dois appeler Paul » —, ne demander au modèle
+# QUE les arguments, pas le choix de l'outil. Un appel au lieu de deux, pour
+# la moitié des compétences. Passez à false pour rendre au modèle son droit
+# de veto sur le choix de l'outil.
+sauter_la_selection = true
 
 [stt]
 engine = "faster-whisper"   # faster-whisper | vosk | scripted

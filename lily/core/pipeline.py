@@ -56,6 +56,16 @@ class State(StrEnum):
     SPEAK = "speak"
 
 
+@dataclass(frozen=True)
+class _EnAttente:
+    """Une compétence irréversible qui attend un « oui »."""
+
+    competence: str
+    arguments: dict[str, Any]
+    phrase: str          # ce qui a été dit pour la déclencher
+    tier: str            # l'étage qui l'a choisie : « regle », « llm »…
+
+
 @dataclass
 class TurnResult:
     """Ce qu'un tour produit, quelle que soit son entrée (voix ou clavier)."""
@@ -136,8 +146,10 @@ class Pipeline:
         # deux phrases et par la lecture entre deux tranches.
         self._barge_in = threading.Event()
         self._listener: VoiceListener | None = None
-        # Compétence irréversible en attente d'un « oui » : (nom, arguments).
-        self._confirmation: tuple[str, dict[str, Any]] | None = None
+        # Compétence irréversible en attente d'un « oui ». On garde la phrase
+        # et l'étage d'origine en plus des arguments : c'est ce qui permet
+        # d'apprendre le routage APRÈS l'accord, et jamais avant.
+        self._confirmation: _EnAttente | None = None
         self._events: asyncio.Queue[ListenerEvent] = asyncio.Queue()
 
     # -- état ---------------------------------------------------------------
@@ -384,7 +396,7 @@ class Pipeline:
         result.speak = skill_result.speak
         result.display = skill_result.display or skill_result.speak
         self.conversation.add_tool_result(skill_result.skill, result.display)
-        self._memoriser_confirmation(result)
+        self._memoriser_confirmation(result, decision.tier)
         if self.journal is not None and skill_result.ok and not skill_result.needs_confirmation:
             self.journal.noter(decision.tool_call.name, decision.tool_call.arguments)
 
@@ -402,7 +414,8 @@ class Pipeline:
         """
         if self._confirmation is None:
             return False
-        nom, arguments = self._confirmation
+        attente = self._confirmation
+        nom, arguments = attente.competence, attente.arguments
         reponse = accord_ou_refus(result.utterance)
 
         if reponse is None:
@@ -429,18 +442,44 @@ class Pipeline:
         result.speak = skill_result.speak
         result.display = skill_result.display or skill_result.speak
         self.conversation.add_tool_result(skill_result.skill, result.display)
+        # C'est ici, et pas au tour de la question, que le geste devient un
+        # fait : l'utilisateur a dit oui, et la compétence a réussi.
+        if skill_result.ok:
+            self._apprendre_apres_accord(attente)
+            if self.journal is not None:
+                self.journal.noter(nom, arguments)
         telemetry.emit(etage="confirmation", outil=nom, ok=skill_result.ok, confirme=True)
         self._set_state(State.IDLE)
         return True
 
-    def _memoriser_confirmation(self, result: TurnResult) -> bool:
+    def _memoriser_confirmation(self, result: TurnResult, tier: str) -> bool:
         """Retient la compétence en attente si elle réclame un accord."""
         skill_result = result.skill_result
         if skill_result is None or not skill_result.needs_confirmation:
             return False
-        self._confirmation = (skill_result.skill, dict(skill_result.arguments))
+        self._confirmation = _EnAttente(
+            competence=skill_result.skill,
+            arguments=dict(skill_result.arguments),
+            phrase=result.utterance,
+            tier=tier,
+        )
         logger.info("En attente d'une confirmation pour « %s ».", skill_result.skill)
         return True
+
+    def _apprendre_apres_accord(self, attente: _EnAttente) -> None:
+        """Retient le routage d'une compétence confirmée, sur la phrase d'origine.
+
+        Le tour de la question n'apprend rien : il n'a encore rien fait. C'est
+        le « oui » qui transforme une intention en geste réussi — et un « non »
+        laisse donc la table intacte, comme le garde-fou l'annonce.
+        """
+        if self.apprentissage is None or attente.tier != "llm":
+            return
+        try:
+            self.apprentissage.apprendre_routage(attente.phrase, attente.competence)
+            self._dernier_routage = (attente.phrase, attente.competence)
+        except Exception:  # pragma: no cover - apprendre ne casse jamais un tour
+            logger.exception("Apprentissage après confirmation impossible.")
 
     # -- apprentissage ------------------------------------------------------
     def _preparer_correction(self, utterance: str) -> tuple[str, str] | None:
@@ -484,8 +523,14 @@ class Pipeline:
                 self.apprentissage.moissonner(result.display, source="reponse")
 
             outil = decision.tool_call.name if decision.tool_call else None
+            skill_result = result.skill_result
+            # Une compétence qui a seulement POSÉ sa question n'a rien fait :
+            # apprendre ici, c'est retenir un routage qu'un « non » ne défera
+            # pas. On attend l'accord — c'est le même test que le journal des
+            # appels applique déjà quelques lignes plus haut.
             reussi = outil is not None and (
-                result.skill_result is None or result.skill_result.ok
+                skill_result is None
+                or (skill_result.ok and not skill_result.needs_confirmation)
             )
             if not reussi:
                 return

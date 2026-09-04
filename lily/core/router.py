@@ -67,6 +67,7 @@ class Router:
         shortlist_threshold: float = 0.35,
         shortlist_size: int = 5,
         allow_number_extraction: bool = True,
+        skip_selection: bool = True,
         temperature: float = 0.0,
         apprentissage: Any = None,
     ) -> None:
@@ -78,6 +79,9 @@ class Router:
         self.shortlist_threshold = shortlist_threshold
         self.shortlist_size = shortlist_size
         self.allow_number_extraction = allow_number_extraction
+        # Quand le score a déjà tranché l'outil, ne demander au modèle que les
+        # arguments. Voir `route()`.
+        self.skip_selection = skip_selection
         self.temperature = temperature
 
     # -- étage 0 : déterministe --------------------------------------------
@@ -233,6 +237,34 @@ class Router:
                         name=best.name, arguments=arguments, source="regle", confidence=best.score
                     ),
                     tier="regle",
+                    candidates=candidates[: self.shortlist_size],
+                )
+            if self.skip_selection:
+                # L'outil est tranché, les arguments non : une phrase comme
+                # « note que je dois appeler Paul » ne se devine pas depuis un
+                # gabarit. On ne demande donc au modèle que l'EXTRACTION,
+                # contrainte par le schéma réel — la sélection, elle, est déjà
+                # faite par le score.
+                #
+                # On perd au passage le veto du modèle, son « aucun ». Mais ce
+                # veto, on ne l'a DÉJÀ pas quand la résolution locale réussit,
+                # au même seuil et sur le même score : ce n'est pas un risque
+                # nouveau, c'est une incohérence en moins. Sans cela, une
+                # compétence à argument obligatoire — la moitié du catalogue —
+                # payait deux appels au modèle à chaque tour, quoi qu'on ait
+                # appris de vos formulations.
+                logger.debug(
+                    "Outil tranché par le score, arguments au modèle : %s (%.2f)",
+                    best.name, best.score,
+                )
+                return RouteDecision(
+                    tool_call=ToolCall(
+                        name=best.name,
+                        arguments=self._fill_arguments_with_llm(utterance, spec, history),
+                        source="regle+llm",
+                        confidence=best.score,
+                    ),
+                    tier="regle_arguments",
                     candidates=candidates[: self.shortlist_size],
                 )
 

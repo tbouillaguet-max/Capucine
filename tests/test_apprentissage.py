@@ -375,3 +375,52 @@ def test_un_mot_repete_dans_la_meme_phrase_compte_deux_fois(tmp_path: Path) -> N
     magasin = Apprentissage(tmp_path / "m.sqlite")
     assert magasin.moissonner("EBITDA puis EBITDA") == ["EBITDA"]
     assert {e.mot: e.occurrences for e in magasin.vocabulaire()} == {"EBITDA": 2}
+
+
+PLUGIN_A_ARGUMENT = '''
+from lily.plugin import skill
+
+@skill(description="Consigne une note.", examples=["note ceci"])
+def consigner(texte: str) -> str:
+    """Écrit une note.
+
+    Args:
+        texte: Ce qu'il faut consigner.
+    """
+    return f"noté : {texte}"
+'''
+
+
+def test_la_boucle_d_apprentissage_se_referme_sur_un_argument_obligatoire(
+    tmp_path: Path, ecrire_plugin, dossier_plugins
+) -> None:
+    """Ce que l'apprentissage du routage promet : la deuxième fois coûte moins
+    que la première.
+
+    Pour une compétence à argument obligatoire — la moitié du catalogue — la
+    formulation était bien retenue, mais le routeur redemandait quand même au
+    modèle de CHOISIR l'outil avant de lui demander l'argument. Deux appels à
+    chaque tour, la millième fois comme la première.
+    """
+    ecrire_plugin("carnet.py", PLUGIN_A_ARGUMENT)
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    registre = PluginRegistry([dossier_plugins], data_root=tmp_path / "data")
+    registre.load_all()
+
+    phrase = "garde-moi ça sous le coude : rappeler Paul"
+    premier = MockLLM([json.dumps({"outil": "consigner"}),
+                       json.dumps({"texte": "rappeler Paul"})])
+    routeur = Router(premier, apprentissage=magasin)
+
+    decision = routeur.route(phrase, registre.skills)
+    assert decision.tier == "llm"
+    assert len(premier.calls) == 2
+    magasin.apprendre_routage(phrase, decision.tool_call.name)
+
+    # La fois suivante : l'outil est acquis, seul l'argument reste à extraire.
+    second = MockLLM([json.dumps({"texte": "rappeler Paul"})])
+    decision = Router(second, apprentissage=magasin).route(phrase, registre.skills)
+    assert decision.tier == "regle_arguments"
+    assert decision.tool_call.name == "consigner"
+    assert decision.tool_call.arguments == {"texte": "rappeler Paul"}
+    assert len(second.calls) == 1, "la formulation apprise doit économiser la sélection"
