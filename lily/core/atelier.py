@@ -16,6 +16,16 @@ Le contrat est donc simple et strict :
   restent hors de portée quand bien même ils seraient dans une racine.
 * **Rien n'est supprimé.** Les fichiers partent à la corbeille, horodatés, et
   toute réécriture laisse une sauvegarde.
+
+Où s'arrête cette garantie
+--------------------------
+Elle porte sur les chemins qui passent par ici. Elle ne porte **pas** sur le
+code que Lily exécute : ``executer_python`` et ``lancer_script`` lancent un
+interpréteur Python complet, dont l'atelier ne contraint que le répertoire
+courant. Ce code-là peut lire et écrire partout où l'utilisateur le peut.
+C'est assumé — un assistant qui écrit et lance du code sur VOTRE dépôt ne peut
+pas faire autrement sans bac à sable — mais le verrou, à cet endroit, est la
+confirmation demandée avant l'exécution, pas la résolution de chemin.
 """
 
 from __future__ import annotations

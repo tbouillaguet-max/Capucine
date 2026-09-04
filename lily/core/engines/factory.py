@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from importlib import import_module
+from inspect import Parameter, signature
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,27 @@ WAKE_ENGINES: dict[str, tuple[str, str]] = {
 }
 
 
+def _cles_inutilisees(factory: Any, options: Mapping[str, Any]) -> list[str]:
+    """Les clés de configuration que ce moteur-là n'utilisera pas.
+
+    Chaque moteur accepte ``**_ignored`` : c'est ce qui permet de passer de
+    l'un à l'autre en changeant une ligne de TOML, sans trier les réglages à
+    la main. En contrepartie, une faute de frappe est avalée sans un mot —
+    ``compute_typ = "int8"`` ne fait rien et ne le dit pas. On les nomme donc,
+    une fois au démarrage.
+    """
+    try:
+        parametres = signature(factory).parameters
+    except (TypeError, ValueError):  # pragma: no cover - fabrique exotique
+        return []
+    if not any(p.kind is Parameter.VAR_KEYWORD for p in parametres.values()):
+        return []
+    connus = {
+        nom for nom, p in parametres.items() if p.kind is not Parameter.VAR_KEYWORD
+    }
+    return sorted(set(options) - connus)
+
+
 def _instantiate(table: Mapping[str, tuple[str, str]], kind: str, name: str, options: Mapping[str, Any]) -> Any:
     if name not in table:
         known = ", ".join(sorted(table)) or "aucun pour l'instant"
@@ -84,6 +106,16 @@ def _instantiate(table: Mapping[str, tuple[str, str]], kind: str, name: str, opt
             f"Le moteur {kind} « {name} » n'est pas installable en l'état : {exc}"
         ) from exc
     factory = getattr(module, class_name)
+    inutilisees = _cles_inutilisees(factory, options)
+    if inutilisees:
+        # En INFO et non en avertissement : la plupart du temps ce sont les
+        # réglages d'un AUTRE moteur de la même section, laissés en place
+        # exprès pour pouvoir y revenir. Mais c'est aussi là qu'une coquille
+        # se voit, au lieu de ne jamais rien faire en silence.
+        logger.info(
+            "Le moteur %s « %s » n'utilise pas : %s (réglages d'un autre moteur, "
+            "ou faute de frappe ?)", kind, name, ", ".join(inutilisees),
+        )
     return factory(**dict(options))
 
 

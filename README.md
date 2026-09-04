@@ -446,6 +446,14 @@ Le cycle est **proposer puis enregistrer**, en deux compétences : un modèle 7B
 fait en sous-processus, avec délai, dans l'atelier, sans jamais passer par un
 shell.
 
+> **Où s'arrête le périmètre de l'atelier.** Sur les *chemins*, pas sur le
+> *code*. `executer_python` et `lancer_script` lancent un interpréteur Python
+> complet : l'atelier en fixe le répertoire courant, pas les droits. Ce code
+> peut lire et écrire partout où vous le pouvez. C'est assumé — un assistant
+> qui écrit et lance du code sur votre dépôt ne peut pas faire autrement sans
+> bac à sable — mais à cet endroit précis, le verrou est la confirmation
+> demandée avant chaque exécution, pas la résolution de chemin.
+
 ### Lancer un projet entier
 
 Un pipeline de données tourne quarante minutes : hors de question de bloquer un

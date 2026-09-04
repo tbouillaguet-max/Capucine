@@ -11,7 +11,11 @@ Ce qu'il montre :
 * de l'exécution en sous-processus, avec délai, répertoire courant contraint
   à l'atelier, et jamais de shell.
 
-Tout ce qui touche au disque ou lance du code demande confirmation.
+Tout ce qui touche au disque ou lance du code demande confirmation — et c'est
+là le vrai verrou. L'atelier contraint le répertoire courant du sous-processus,
+pas ses droits : le code exécuté est un Python complet, qui peut lire et écrire
+partout où vous le pouvez. La garantie de périmètre de ``atelier.py`` s'arrête
+au chemin des fichiers, elle ne s'étend pas au code lancé.
 """
 
 import shlex
