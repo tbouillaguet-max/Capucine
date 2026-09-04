@@ -43,6 +43,7 @@ from typing import Any
 from .errors import LilyError
 from .interfaces.embeddings import EmbeddingEngine
 from .logging import get_logger
+from .sqlite import regler_la_base
 from .text import split_sentences
 
 logger = get_logger("connaissances")
@@ -195,7 +196,7 @@ class Connaissances:
         self._verrou = threading.RLock()
         self._db = sqlite3.connect(str(self.chemin), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
+        regler_la_base(self._db)
         with self._verrou:
             self._db.executescript(SCHEMA)
             try:
@@ -408,29 +409,53 @@ class Connaissances:
     def _chercher_vectoriel(
         self, vecteur: list[float], limite: int, sources: tuple[str, ...]
     ) -> list[Passage]:
+        """Le balayage, en deux temps.
+
+        Classer ne demande que les vecteurs ; les textes, seuls les quelques
+        passages retenus en ont besoin. Les rapatrier tous revenait à
+        transporter 4,5 Mo de texte pour en garder cinq à 5 000 fragments — et
+        quarante-cinq au plafond configuré.
+        """
         clause, parametres = _filtre_source(sources)
         with self._verrou:
             lignes = self._db.execute(
-                "SELECT texte, reference, ancre, source, vecteur FROM fragments "
+                "SELECT id, vecteur FROM fragments "
                 f"WHERE vecteur IS NOT NULL AND modele = ?{clause}",
                 (self.modele, *parametres),
             ).fetchall()
-        if not lignes:
-            return []
-        scores = _produits_scalaires(vecteur, [ligne["vecteur"] for ligne in lignes])
-        meilleurs = sorted(range(len(lignes)), key=lambda index: scores[index], reverse=True)
+            if not lignes:
+                return []
+            scores = _produits_scalaires(vecteur, [ligne["vecteur"] for ligne in lignes])
+            classes = sorted(range(len(lignes)), key=lambda index: scores[index], reverse=True)
+            retenus = [
+                (lignes[index]["id"], scores[index])
+                for index in classes[:limite]
+                # Un score négatif veut dire « aucun rapport » : mieux vaut rendre
+                # trois passages que cinq dont deux hors sujet.
+                if scores[index] > 0.05
+            ]
+            if not retenus:
+                return []
+            trous = ",".join("?" for _ in retenus)
+            details = {
+                ligne["id"]: ligne
+                for ligne in self._db.execute(
+                    f"SELECT id, texte, reference, ancre, source FROM fragments "
+                    f"WHERE id IN ({trous})",
+                    tuple(identifiant for identifiant, _ in retenus),
+                )
+            }
+        # `IN (…)` ne garantit aucun ordre : on rebâtit depuis le classement.
         return [
             Passage(
-                texte=lignes[index]["texte"],
-                reference=lignes[index]["reference"],
-                ancre=lignes[index]["ancre"],
-                source=lignes[index]["source"],
-                score=round(scores[index], 4),
+                texte=details[identifiant]["texte"],
+                reference=details[identifiant]["reference"],
+                ancre=details[identifiant]["ancre"],
+                source=details[identifiant]["source"],
+                score=round(score, 4),
             )
-            for index in meilleurs[:limite]
-            # Un score négatif veut dire « aucun rapport » : mieux vaut rendre
-            # trois passages que cinq dont deux hors sujet.
-            if scores[index] > 0.05
+            for identifiant, score in retenus
+            if identifiant in details
         ]
 
     def _chercher_lexical(

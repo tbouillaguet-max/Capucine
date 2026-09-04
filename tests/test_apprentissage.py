@@ -352,3 +352,26 @@ def test_retenir_un_mot_ne_vide_pas_le_cache_des_routages(tmp_path: Path) -> Non
     magasin.apprendre_routage("relance le bazar", "lancer_projet")
     assert magasin._cache_phrases is None
     assert magasin._cache_amorce is not None, "un routage a vidé le cache du vocabulaire"
+
+
+def test_la_moisson_compte_comme_avant_en_une_seule_transaction(tmp_path: Path) -> None:
+    """Un `commit` par mot, deux fois par tour, c'était autant de `fsync`. On
+    vérifie que grouper ne change ni les mots retenus, ni leurs compteurs."""
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    texte = "lance CalculRisque_Mark5 sur le Q1 2025 avec EBITDA, le 10K et le 10Q"
+
+    neufs = magasin.moissonner(texte)
+    assert set(neufs) == {"CalculRisque_Mark5", "Q1", "2025", "EBITDA", "10K", "10Q"} & set(neufs)
+    assert neufs, "la moisson doit rendre les mots réellement nouveaux"
+    assert magasin.moissonner(texte) == [], "un mot déjà connu n'est plus « nouveau »"
+
+    magasin.moissonner(texte)
+    occurrences = {entree.mot: entree.occurrences for entree in magasin.vocabulaire()}
+    assert set(occurrences) == set(neufs)
+    assert all(nombre == 3 for nombre in occurrences.values()), occurrences
+
+
+def test_un_mot_repete_dans_la_meme_phrase_compte_deux_fois(tmp_path: Path) -> None:
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    assert magasin.moissonner("EBITDA puis EBITDA") == ["EBITDA"]
+    assert {e.mot: e.occurrences for e in magasin.vocabulaire()} == {"EBITDA": 2}

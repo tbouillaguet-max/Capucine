@@ -179,3 +179,23 @@ def test_un_echec_d_archivage_ne_coupe_pas_la_parole(magasin: Memoire) -> None:
     fil = Conversation(memoire=MagasinCasse(), session_id=1)
     fil.add_user("bonjour")     # ne doit pas lever
     assert len(fil) == 1
+
+
+def test_le_bloc_de_faits_est_servi_depuis_un_cache(tmp_path: Path) -> None:
+    """Il entre dans le persona à chaque inférence, deux à trois fois par tour,
+    pour des faits qui ne changent qu'à la demande de l'utilisateur."""
+    magasin = Memoire(tmp_path / "m.sqlite")
+    magasin.retenir("Tom travaille sur CalculRisque")
+    premier = magasin.bloc_de_faits()
+    assert "CalculRisque" in premier
+    assert magasin.bloc_de_faits() is premier, "le bloc devrait venir du cache"
+
+    magasin.retenir("Tom habite à Lyon")
+    assert "Lyon" in magasin.bloc_de_faits(), "retenir un fait doit vider le cache"
+
+    magasin.oublier("Lyon")
+    assert "Lyon" not in magasin.bloc_de_faits(), "oublier un fait doit vider le cache"
+
+    # Une limite explicite est une consultation ponctuelle : pas de cache.
+    assert magasin.bloc_de_faits(limite=1).count("\n- ") == 1
+    magasin.fermer()

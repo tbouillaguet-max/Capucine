@@ -502,3 +502,31 @@ def test_un_recouvrement_absurde_est_borne_sans_rien_perdre() -> None:
     fragments = decouper("phrase sans ponctuation " * 60, taille=120, recouvrement=5000)
     assert fragments
     assert "".join(fragments).replace("\n", "").strip()
+
+
+def test_la_recherche_vectorielle_ne_rapatrie_pas_tout_le_texte(tmp_path: Path) -> None:
+    """Classer ne demande que les vecteurs. Rapatrier le texte de chaque
+    fragment pour en garder cinq transportait des mégaoctets par question ;
+    on vérifie que les passages rendus sont les mêmes, dans le même ordre."""
+    index = Connaissances(tmp_path / "k.sqlite", HachageEmbeddings(dimension=64))
+    for numero in range(30):
+        index.indexer(f"doc{numero}", f"Le fragment numéro {numero} parle de finance et de risque. "
+                      + "détail " * 40)
+
+    passages = index.chercher("finance et risque", limite=5)
+    assert passages
+    assert len(passages) <= 5
+    assert all(p.texte and p.reference for p in passages)
+    # Strictement décroissant : l'ordre du classement, pas celui du `IN (…)`.
+    assert [p.score for p in passages] == sorted((p.score for p in passages), reverse=True)
+    # Une seconde recherche identique rend exactement la même chose.
+    assert [(p.reference, p.score) for p in index.chercher("finance et risque", limite=5)] == [
+        (p.reference, p.score) for p in passages
+    ]
+    index.fermer()
+
+
+def test_un_index_sans_correspondance_ne_rend_rien(tmp_path: Path) -> None:
+    index = Connaissances(tmp_path / "k.sqlite", HachageEmbeddings(dimension=64))
+    assert index.chercher("n'importe quoi") == []
+    index.fermer()

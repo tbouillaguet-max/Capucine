@@ -23,12 +23,13 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from .logging import get_logger
-from .text import normalize, strip_accents
+from .sqlite import regler_la_base
+from .text import PhrasePreparee, normalize, strip_accents
 
 logger = get_logger("apprentissage")
 
@@ -81,6 +82,12 @@ class PhraseApprise:
     outil: str
     confirmations: int
     dementis: int
+    # Préparée à la lecture, comme les exemples d'un plugin : le routeur les
+    # compare à chaque tour, et elles ne changent qu'à l'écriture.
+    preparee: PhrasePreparee = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.preparee = PhrasePreparee.de(self.phrase)
 
     @property
     def poids(self) -> float:
@@ -122,7 +129,7 @@ class Apprentissage:
         self._verrou = threading.RLock()
         self._db = sqlite3.connect(str(self.chemin), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
+        regler_la_base(self._db)
         with self._verrou:
             self._db.executescript(SCHEMA)
             self._db.commit()
@@ -238,9 +245,7 @@ class Apprentissage:
         d'apprendre, pas ce qu'il vient de recompter.
         """
         mot = mot.strip()
-        if not self.actif or not self.vocabulaire_actif or len(mot) < 3:
-            return False
-        if strip_accents(mot).lower() in _MOTS_COURANTS:
+        if not (self.actif and self.vocabulaire_actif) or not self._retenable(mot):
             return False
         with self._verrou:
             # Pas de RETURNING : il demande SQLite 3.35, et la Raspberry Pi de
@@ -263,14 +268,46 @@ class Apprentissage:
 
         Chaque occurrence compte — un mot répété est un mot qui vous tient à
         cœur — mais seuls les mots réellement nouveaux sont renvoyés.
+
+        Toute la moisson tient en **une** transaction. Un `commit` par mot,
+        deux fois par tour (la phrase, puis la réponse), c'était autant de
+        `fsync` : quelques millisecondes sur un SSD, dix fois plus sur la
+        carte SD d'un Raspberry Pi, et une usure d'écriture sans objet.
         """
         if not (self.actif and self.vocabulaire_actif):
             return []
-        trouves: list[str] = []
-        for candidat in _CANDIDATS.findall(texte or ""):
-            if self.retenir_mot(candidat, source):
-                trouves.append(candidat)
-        return trouves
+        candidats = [
+            mot for mot in (m.strip() for m in _CANDIDATS.findall(texte or ""))
+            if self._retenable(mot)
+        ]
+        if not candidats:
+            return []
+        maintenant = _maintenant()
+        try:
+            with self._verrou:
+                trous = ",".join("?" for _ in candidats)
+                connus = {
+                    ligne[0] for ligne in self._db.execute(
+                        f"SELECT mot FROM vocabulaire WHERE mot IN ({trous})", candidats
+                    )
+                }
+                self._db.executemany(
+                    """INSERT INTO vocabulaire (mot, source, horodatage) VALUES (?, ?, ?)
+                       ON CONFLICT(mot) DO UPDATE SET occurrences = occurrences + 1""",
+                    [(mot, source, maintenant) for mot in candidats],
+                )
+                self._db.commit()
+                nouveaux = list(dict.fromkeys(m for m in candidats if m not in connus))
+                if nouveaux:
+                    self._invalider_amorce()
+        except sqlite3.Error:
+            logger.exception("Moisson de vocabulaire impossible.")
+            return []
+        return nouveaux
+
+    def _retenable(self, mot: str) -> bool:
+        """Ce mot mérite-t-il d'entrer dans le vocabulaire ?"""
+        return len(mot) >= 3 and strip_accents(mot).lower() not in _MOTS_COURANTS
 
     def vocabulaire(self, limite: int = 0) -> list[MotAppris]:
         limite = limite or self.mots_vocabulaire

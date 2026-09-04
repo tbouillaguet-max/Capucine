@@ -294,9 +294,23 @@ class Catalogue:
 
     # -- construction -------------------------------------------------------
     def construire(self, force: bool = False) -> int:
-        """(Re)lit les fichiers modifiés. Rend le nombre d'entrées connues."""
+        """(Re)lit les fichiers modifiés. Rend le nombre d'entrées connues.
+
+        Le parcours est refait à chaque appel, volontairement : il coûte une
+        milliseconde et quelques sur un dépôt ordinaire, et c'est le prix
+        d'une promesse qui vaut plus cher — un fichier déposé est vu tout de
+        suite, ici comme dans `plugins/`.
+        """
         fichiers = self._fichiers()
-        empreintes = {chemin: chemin.stat().st_mtime for chemin in fichiers}
+        empreintes: dict[Path, float] = {}
+        for chemin in fichiers:
+            try:
+                empreintes[chemin] = chemin.stat().st_mtime
+            except OSError:
+                # Fichier disparu entre le parcours et la lecture de sa date :
+                # on l'oublie, sans faire échouer toute la construction.
+                continue
+        fichiers = list(empreintes)
         if not force and empreintes == self._empreintes and self._entrees:
             return len(self._entrees)
 

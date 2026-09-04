@@ -7,12 +7,16 @@ et l'étage LLM doit être structurellement incapable d'inventer un nom d'outil.
 
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
+
+import pytest
 
 from lily.core.engines.llm.mock import MockLLM
 from lily.core.plugin import SkillDeclaration, build_skill_spec
 from lily.core.router import NO_TOOL, Router
+from lily.core.text import PhrasePreparee, similarity, similarity_preparee
 
 
 def fabriquer(func, description="", examples=()):
@@ -161,3 +165,76 @@ def test_sans_aucune_competence_on_repond_sans_planter() -> None:
     decision = Router(MockLLM()).route("bonjour", {})
     assert decision.tool_call is None
     assert decision.tier == "conversation"
+
+
+# --- l'étage déterministe, préparé et élagué ---------------------------------
+
+def _similarity_naive(gauche: str, droite: str) -> float:
+    """La formule d'origine, gardée ici comme témoin.
+
+    C'est elle qui définit ce que « le même score » veut dire : la version en
+    production prépare les phrases et élague avec une borne, deux changements
+    qui doivent être strictement sans effet sur le résultat.
+    """
+    from difflib import SequenceMatcher
+
+    from lily.core.text import normalize, tokenize
+
+    jetons_g, jetons_d = set(tokenize(gauche)), set(tokenize(droite))
+    if not jetons_g or not jetons_d:
+        return 0.0
+    partages = len(jetons_g & jetons_d)
+    if partages:
+        precision, rappel = partages / len(jetons_d), partages / len(jetons_g)
+        f1 = 2 * precision * rappel / (precision + rappel)
+    else:
+        f1 = 0.0
+    return 0.7 * f1 + 0.3 * SequenceMatcher(None, normalize(gauche), normalize(droite)).ratio()
+
+
+@pytest.mark.parametrize(
+    ("gauche", "droite"),
+    [
+        ("mets un minuteur de dix minutes", "minuteur de trois minutes pour les pâtes"),
+        ("quelle heure est-il", "donne-moi l'heure"),
+        ("relance-moi le bazar", "lance le pipeline du projet"),
+        ("azertyuiop", "quelle heure est-il"),
+        ("", "quelque chose"),
+        ("identique", "identique"),
+        ("accentué déjà là", "accentue deja la"),
+    ],
+)
+def test_la_preparation_ne_change_aucun_score(gauche: str, droite: str) -> None:
+    assert similarity(gauche, droite) == pytest.approx(_similarity_naive(gauche, droite))
+
+
+def test_l_elagage_ne_change_aucun_score() -> None:
+    """`real_quick_ratio()` majore toujours `ratio()` : quand le plafond ne bat
+    pas un score déjà obtenu, ne pas calculer le score exact ne peut rien
+    changer. On le vérifie plutôt que de le croire."""
+    phrases = ["mets un minuteur", "quelle heure est-il", "note ça", "lance le pipeline"]
+    for gauche, droite in itertools.product(phrases, repeat=2):
+        g, d = PhrasePreparee.de(gauche), PhrasePreparee.de(droite)
+        exact = similarity_preparee(g, d)
+        for plancher in (0.0, 0.1, 0.5, exact - 1e-9, exact, 1.0):
+            elague = similarity_preparee(g, d, plancher)
+            assert elague == exact or elague == 0.0
+            if elague == 0.0:
+                assert exact <= plancher + 1e-9, "un score qui pouvait gagner a été élagué"
+
+
+def test_le_score_des_competences_est_celui_de_la_formule_temoin() -> None:
+    """Le chemin complet : préparation, cache par compétence, élagage — contre
+    la formule naïve appliquée phrase par phrase."""
+    routeur = Router(MockLLM())
+    for phrase in ("lance un dé à vingt faces", "quelle heure est-il",
+                   "quelque chose de totalement hors sujet", ""):
+        obtenus = {c.name: c.score for c in routeur.score_skills(phrase, CATALOGUE)}
+        for nom, spec in CATALOGUE.items():
+            attendu = max(
+                [_similarity_naive(phrase, e) * 1.0 for e in spec.examples]
+                + [_similarity_naive(phrase, nom.replace("_", " ")) * 0.85]
+                + ([_similarity_naive(phrase, spec.description) * 0.45] if spec.description else []),
+                default=0.0,
+            )
+            assert obtenus[nom] == pytest.approx(round(attendu, 3))

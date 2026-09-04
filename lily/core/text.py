@@ -13,8 +13,11 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 
 __all__ = [
+    "PhrasePreparee",
+    "similarity_preparee",
     "accord_ou_refus",
     "est_une_correction",
     "split_sentences",
@@ -152,25 +155,58 @@ def extract_numbers(text: str) -> list[int | float]:
     return found
 
 
+@dataclass(frozen=True)
+class PhrasePreparee:
+    """Une phrase déjà normalisée et découpée en jetons.
+
+    Le routeur compare la phrase entendue à chaque exemple de chaque
+    compétence : sur soixante-huit compétences, cela fait deux cent cinquante
+    comparaisons par tour, et `similarity()` renormalisait les DEUX côtés à
+    chacune — dont le côté gauche, qui ne change pas de la boucle entière.
+    Les exemples, eux, sont figés au chargement du plugin.
+    """
+
+    normalisee: str
+    jetons: frozenset[str]
+
+    @classmethod
+    def de(cls, texte: str) -> PhrasePreparee:
+        normalisee = normalize(texte)
+        return cls(normalisee, frozenset(normalisee.split()))
+
+
+def similarity_preparee(
+    gauche: PhrasePreparee, droite: PhrasePreparee, plancher: float = 0.0
+) -> float:
+    """Le score de ``similarity``, sur des phrases déjà préparées.
+
+    ``plancher`` est une optimisation exacte, pas une approximation :
+    ``real_quick_ratio()`` majore toujours ``ratio()``, donc si le PLAFOND du
+    score ne dépasse pas un score déjà obtenu, le calcul complet — qui est la
+    partie chère — ne peut rien changer au résultat. On rend alors 0, ce que
+    l'appelant écartera de toute façon.
+    """
+    from difflib import SequenceMatcher
+
+    if not gauche.jetons or not droite.jetons:
+        return 0.0
+    partages = len(gauche.jetons & droite.jetons)
+    # 2·précision·rappel / (précision + rappel) se simplifie en
+    # 2·partagés / (|gauche| + |droite|) : même valeur, deux divisions de moins.
+    f1 = (
+        2 * partages / (len(gauche.jetons) + len(droite.jetons)) if partages else 0.0
+    )
+    mesure = SequenceMatcher(None, gauche.normalisee, droite.normalisee)
+    if plancher > 0.0 and 0.7 * f1 + 0.3 * mesure.real_quick_ratio() <= plancher:
+        return 0.0
+    return 0.7 * f1 + 0.3 * mesure.ratio()
+
+
 def similarity(left: str, right: str) -> float:
     """Score 0..1 entre deux phrases : recouvrement de tokens (F1) mêlé à une
     similarité de caractères, pour rattraper les variantes morphologiques.
     """
-    from difflib import SequenceMatcher
-
-    left_tokens = set(tokenize(left))
-    right_tokens = set(tokenize(right))
-    if not left_tokens or not right_tokens:
-        return 0.0
-    shared = len(left_tokens & right_tokens)
-    if shared:
-        precision = shared / len(right_tokens)
-        recall = shared / len(left_tokens)
-        f1 = 2 * precision * recall / (precision + recall)
-    else:
-        f1 = 0.0
-    ratio = SequenceMatcher(None, normalize(left), normalize(right)).ratio()
-    return 0.7 * f1 + 0.3 * ratio
+    return similarity_preparee(PhrasePreparee.de(left), PhrasePreparee.de(right))
 
 
 # --- découpage en phrases --------------------------------------------------

@@ -26,7 +26,7 @@ from typing import Any
 from .interfaces.llm import LLMEngine, Message, ToolCall
 from .logging import get_logger
 from .plugin import SkillSpec
-from .text import extract_numbers, similarity
+from .text import PhrasePreparee, extract_numbers, similarity_preparee
 
 logger = get_logger("routeur")
 
@@ -85,30 +85,28 @@ class Router:
         apprises = (
             self.apprentissage.phrases_par_outil() if self.apprentissage is not None else {}
         )
+        # Une seule normalisation de la phrase entendue, au lieu d'une par
+        # comparaison : sur soixante-huit compétences, la boucle ci-dessous en
+        # faisait deux cent cinquante fois le même travail.
+        demande = PhrasePreparee.de(utterance)
         candidates: list[Candidate] = []
         for name, spec in skills.items():
             if spec.quarantined:
                 continue
             best = 0.0
             matched = ""
-            for phrase in spec.examples:
-                value = similarity(utterance, phrase) * _WEIGHTS["example"]
+            # Exemples, formulations retenues, nom lisible, description :
+            # tout est préparé d'avance, ici on ne fait que comparer. Vos
+            # formulations pèsent presque autant qu'un exemple d'auteur,
+            # jamais davantage.
+            retenues = [
+                (retenue.preparee, retenue.poids, f"appris: {retenue.phrase}")
+                for retenue in apprises.get(name, ())
+            ]
+            for phrase, poids, libelle in spec.phrases_ponderees(_WEIGHTS, retenues):
+                value = similarity_preparee(demande, phrase, best / poids) * poids
                 if value > best:
-                    best, matched = value, phrase
-            # Vos propres formulations, retenues des tours précédents. Elles
-            # pèsent presque autant qu'un exemple d'auteur, jamais davantage.
-            for retenue in apprises.get(name, ()):
-                value = similarity(utterance, retenue.phrase) * retenue.poids
-                if value > best:
-                    best, matched = value, f"appris: {retenue.phrase}"
-            readable = name.replace("_", " ")
-            value = similarity(utterance, readable) * _WEIGHTS["name"]
-            if value > best:
-                best, matched = value, readable
-            if spec.description:
-                value = similarity(utterance, spec.description) * _WEIGHTS["description"]
-                if value > best:
-                    best, matched = value, "description"
+                    best, matched = value, libelle
             candidates.append(Candidate(name=name, score=round(best, 3), matched=matched))
         candidates.sort(key=lambda c: c.score, reverse=True)
         return candidates

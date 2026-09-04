@@ -27,8 +27,14 @@ from datetime import datetime
 from pathlib import Path
 
 from .logging import get_logger
+from .sqlite import regler_la_base
 
 logger = get_logger("memoire")
+
+# Combien de faits durables entrent dans le persona. C'est aussi la seule
+# taille de bloc qui soit mise en cache : c'est celle qu'on redemande à
+# chaque inférence.
+FAITS_DANS_LE_PERSONA = 30
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -115,9 +121,12 @@ class Memoire:
         # un seul verrou suffit à sérialiser des écritures aussi courtes.
         self._db = sqlite3.connect(str(self.chemin), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA journal_mode=WAL")
+        regler_la_base(self._db)
         self._db.execute("PRAGMA foreign_keys=ON")
         self._fts = False
+        # `system_prompt()` appelle `bloc_de_faits()` deux à trois fois par
+        # tour, pour des faits qui ne changent qu'à votre demande expresse.
+        self._cache_faits: str | None = None
         with self._verrou:
             self._db.executescript(SCHEMA)
             try:
@@ -254,6 +263,7 @@ class Memoire:
                 (_maintenant(), contenu, source),
             )
             self._db.commit()
+            self._cache_faits = None
         return curseur.rowcount > 0
 
     def oublier(self, motif: str) -> int:
@@ -265,6 +275,7 @@ class Memoire:
                 "DELETE FROM faits WHERE contenu LIKE ?", (f"%{motif}%",)
             )
             self._db.commit()
+            self._cache_faits = None
         return curseur.rowcount
 
     def faits(self, limite: int = 50) -> list[Fait]:
@@ -277,8 +288,21 @@ class Memoire:
             for ligne in lignes
         ]
 
-    def bloc_de_faits(self, limite: int = 30) -> str:
-        """Les faits durables, prêts à être ajoutés au persona."""
+    def bloc_de_faits(self, limite: int = FAITS_DANS_LE_PERSONA) -> str:
+        """Les faits durables, prêts à être ajoutés au persona.
+
+        Le bloc par défaut — celui qui entre dans le contexte à chaque
+        inférence d'un tour — est servi depuis un cache, vidé dès qu'un fait
+        est retenu ou oublié. Une limite explicite est une consultation
+        ponctuelle : elle court-circuite le cache.
+        """
+        if limite != FAITS_DANS_LE_PERSONA:
+            return self._composer_les_faits(limite)
+        if self._cache_faits is None:
+            self._cache_faits = self._composer_les_faits(limite)
+        return self._cache_faits
+
+    def _composer_les_faits(self, limite: int) -> str:
         faits = self.faits(limite)
         if not faits:
             return ""

@@ -20,7 +20,7 @@ from __future__ import annotations
 import inspect
 import logging
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,7 @@ from typing import Any
 from .errors import SchemaError, SkillRefused
 from .logging import get_logger
 from .schema import build_parameters_schema, build_tool_schema
-from .text import ascii_identifier
+from .text import PhrasePreparee, ascii_identifier
 
 __all__ = [
     "skill",
@@ -159,6 +159,13 @@ class SkillSpec:
     qualname: str = ""
     failures: int = 0
     quarantined: bool = False
+    # Ce que le routeur compare, préparé une fois. Ces phrases sont figées au
+    # chargement du plugin : les renormaliser à chaque tour était le principal
+    # poste de dépense de l'étage déterministe.
+    _ponderees: tuple[
+        tuple[tuple[PhrasePreparee, float, str], ...],
+        tuple[tuple[PhrasePreparee, float, str], ...],
+    ] | None = field(default=None, repr=False, compare=False)
 
     @property
     def is_async(self) -> bool:
@@ -182,6 +189,37 @@ class SkillSpec:
         """Ce que le routeur déterministe compare à la phrase entendue."""
         readable_name = self.name.replace("_", " ")
         return [readable_name, *self.examples, self.description]
+
+    def phrases_ponderees(
+        self,
+        poids: Mapping[str, float],
+        apprises: Iterable[tuple[PhrasePreparee, float, str]] = (),
+    ) -> Iterator[tuple[PhrasePreparee, float, str]]:
+        """Les phrases à comparer, préparées et pondérées, dans l'ordre de confiance.
+
+        Exemples de l'auteur, puis vos formulations retenues, puis le nom
+        lisible, puis la description. L'ordre compte : à score strictement
+        égal, c'est le premier qui est rapporté comme « ce qui a apparié ».
+
+        Le troisième membre est ce libellé — le texte pour un exemple, le mot
+        « description » pour la description.
+        """
+        if self._ponderees is None:
+            lisible = self.name.replace("_", " ")
+            exemples = tuple(
+                (PhrasePreparee.de(exemple), poids["example"], exemple)
+                for exemple in self.examples
+            )
+            autres = [(PhrasePreparee.de(lisible), poids["name"], lisible)]
+            if self.description:
+                autres.append(
+                    (PhrasePreparee.de(self.description), poids["description"], "description")
+                )
+            self._ponderees = (exemples, tuple(autres))
+        exemples, autres = self._ponderees
+        yield from exemples
+        yield from apprises
+        yield from autres
 
 
 def build_skill_spec(
