@@ -519,9 +519,16 @@ class Pipeline:
         self._set_state(State.IDLE)
         return result
 
-    async def handle(self, utterance: str) -> TurnResult:
-        """Traite une phrase sans la prononcer. Ne lève jamais."""
-        telemetry = TurnTelemetry(name="tour")
+    async def handle(
+        self, utterance: str, telemetry: TurnTelemetry | None = None
+    ) -> TurnResult:
+        """Traite une phrase sans la prononcer. Ne lève jamais.
+
+        ``telemetry`` permet à un tour vocal de passer la sienne, déjà chargée
+        des étages d'écoute et de transcription. Sans cela, ces étages étaient
+        recopiés APRÈS l'émission et n'atteignaient jamais le carnet.
+        """
+        telemetry = telemetry or TurnTelemetry(name="tour")
         result = TurnResult(utterance=utterance.strip(), telemetry=telemetry)
         if not result.utterance:
             return result
@@ -564,14 +571,19 @@ class Pipeline:
         self._set_state(State.IDLE)
         return result
 
-    async def handle_and_speak(self, utterance: str) -> TurnResult:
+    async def handle_and_speak(
+        self, utterance: str, telemetry: TurnTelemetry | None = None
+    ) -> TurnResult:
         """Traite une phrase et la prononce.
 
         Sur le chemin conversationnel avec une voix disponible, la réponse est
         **diffusée** : la première phrase est prononcée pendant que le modèle
         écrit la suivante.
+
+        ``telemetry`` permet à un tour vocal de passer la sienne, déjà chargée
+        des étages d'écoute et de transcription.
         """
-        telemetry = TurnTelemetry(name="tour")
+        telemetry = telemetry or TurnTelemetry(name="tour")
         result = TurnResult(utterance=utterance.strip(), telemetry=telemetry)
         if not result.utterance:
             return result
@@ -642,20 +654,21 @@ class Pipeline:
     async def voice_turn(self, stop: threading.Event | None = None) -> TurnResult:
         """Un tour vocal complet : écoute, transcription, réflexion, parole."""
         audio = await self.listen(stop=stop)
+        # UNE télémétrie pour tout le tour : les étages d'écoute et de
+        # transcription doivent être là quand `handle_and_speak` émet, pas
+        # recopiés après — ils n'atteindraient jamais le carnet de latences,
+        # et la transcription est justement l'étage le plus cher sur un Pi.
         telemetry = TurnTelemetry(name="tour vocal")
         transcription = await self.transcribe(audio, telemetry)
+        telemetry.record("audio_ms", round(audio.duration_s * 1000, 1))
         if not transcription:
             logger.info("Rien à transcrire (%.2f s captées).", audio.duration_s)
+            telemetry.emit(etage="sans_transcription")
             self._set_state(State.IDLE)
             return TurnResult(utterance="", telemetry=telemetry)
 
         print(f"Vous  › {transcription.text}")
-        result = await self.handle_and_speak(transcription.text)
-        # Les latences d'écoute et de transcription appartiennent au même tour.
-        for etage, valeur in telemetry.stages.items():
-            result.telemetry.record(etage, valeur)
-        result.telemetry.record("audio_s", round(audio.duration_s * 1000, 1))
-        return result
+        return await self.handle_and_speak(transcription.text, telemetry=telemetry)
 
     # -- boucle « toujours à l'écoute » -------------------------------------
     def on_listener_event(self, evenement: ListenerEvent) -> None:
@@ -770,20 +783,21 @@ class Pipeline:
         listener.set_mode(ListenMode.PAUSED)
         telemetrie = TurnTelemetry(name="tour vocal")
         transcription = await self.transcribe(enonce.audio, telemetrie)
+        telemetrie.record("audio_ms", round(enonce.audio.duration_s * 1000, 1))
 
         if not transcription:
             logger.info("Rien de transcrit (%.2f s captées).", enonce.audio.duration_s)
+            telemetrie.emit(etage="sans_transcription")
             self._etiqueter_l_eveil(bon=False)
+            if attente_par_defaut is not None:
+                listener.endpointer.max_wait_s = attente_par_defaut
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
             return
 
         self._etiqueter_l_eveil(bon=True)
         print(f"Vous  › {transcription.text}")
-        resultat = await self.handle_and_speak(transcription.text)
-        for etage, valeur in telemetrie.stages.items():
-            resultat.telemetry.record(etage, valeur)
-        resultat.telemetry.record("audio_s", round(enonce.audio.duration_s * 1000, 1))
+        await self.handle_and_speak(transcription.text, telemetry=telemetrie)
 
         if listener.mode is ListenMode.UTTERANCE or listener.pending is ListenMode.UTTERANCE:
             # Le barge-in a déjà rouvert l'écoute : on ne la referme pas.

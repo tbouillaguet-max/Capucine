@@ -16,6 +16,7 @@ from lily.core.conversation import Conversation
 from lily.core.engines.llm.mock import MockLLM
 from lily.core.engines.stt.scripted import ScriptedSTT
 from lily.core.engines.tts.silent import SilentTTS
+from lily.core.logging import get_latency_book
 from lily.core.pipeline import Pipeline, State
 from lily.core.registry import PluginRegistry
 from lily.core.router import NO_TOOL, Router
@@ -72,7 +73,7 @@ def test_un_tour_vocal_complet(ecrire_plugin, dossier_plugins) -> None:
     assert llm.calls == []                      # aucun modèle sollicité
     # Les latences des étages audio rejoignent celles du tour.
     assert "transcription_ms" in resultat.telemetry.stages
-    assert "audio_s" in resultat.telemetry.stages
+    assert "audio_ms" in resultat.telemetry.stages
 
 
 def test_les_etats_du_chemin_vocal(ecrire_plugin, dossier_plugins) -> None:
@@ -225,3 +226,46 @@ def test_un_peripherique_qui_disparait_bascule_en_affichage(
     # l'erreur à chaque phrase.
     assert pipeline.audio_out is None
     assert not pipeline.has_voice
+
+
+def test_la_transcription_arrive_jusqu_au_carnet_de_latences(
+    ecrire_plugin, dossier_plugins
+) -> None:
+    """Le test qui manquait.
+
+    Les étages d'écoute et de transcription étaient recopiés dans la
+    télémétrie du tour APRÈS que `handle_and_speak` l'avait déjà émise : ils
+    étaient bien dans l'objet rendu — ce que l'assertion voisine vérifiait —
+    mais n'atteignaient jamais le carnet. `/latences` en mode vocal n'affichait
+    donc pas l'étage le plus cher de la chaîne, celui qu'on vient précisément
+    y lire sur un Raspberry Pi.
+    """
+    carnet = get_latency_book()
+    carnet.reset()
+    try:
+        ecrire_plugin("horloge.py", PLUGIN_HEURE)
+        pipeline, _, _ = monter(dossier_plugins, dit=["quelle heure est-il"])
+        asyncio.run(pipeline.voice_turn())
+        etages = {stat.etage for stat in carnet.snapshot()}
+        assert "transcription" in etages, f"étages relevés : {sorted(etages)}"
+        assert "audio" in etages
+        assert "total" in etages
+    finally:
+        carnet.reset()
+
+
+def test_un_tour_sans_transcription_est_quand_meme_releve(
+    ecrire_plugin, dossier_plugins
+) -> None:
+    """Du silence coûte quand même une écoute et un passage par Whisper : ne
+    rien relever donnerait une médiane flatteuse et fausse."""
+    carnet = get_latency_book()
+    carnet.reset()
+    try:
+        ecrire_plugin("horloge.py", PLUGIN_HEURE)
+        pipeline, _, _ = monter(dossier_plugins, dit=[""])
+        resultat = asyncio.run(pipeline.voice_turn())
+        assert resultat.utterance == ""
+        assert "transcription" in {stat.etage for stat in carnet.snapshot()}
+    finally:
+        carnet.reset()
