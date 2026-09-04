@@ -125,6 +125,12 @@ def decouper(texte: str, taille: int = 900, recouvrement: int = 150) -> list[str
         return []
     if len(texte) <= taille:
         return [texte]
+    # Un recouvrement aussi large que la taille rendrait la coupe franche
+    # sur place : `phrase[taille - recouvrement:]` vaudrait `phrase[0:]` et la
+    # boucle ci-dessous ne se terminerait jamais. Les deux valeurs viennent de
+    # la configuration, donc on borne ici plutôt que de faire confiance.
+    recouvrement = max(0, min(recouvrement, taille // 2))
+    pas = max(1, taille - recouvrement)
 
     morceaux: list[str] = []
     for paragraphe in texte.split("\n\n"):
@@ -137,7 +143,7 @@ def decouper(texte: str, taille: int = 900, recouvrement: int = 150) -> list[str
         for phrase in split_sentences(paragraphe) or [paragraphe]:
             while len(phrase) > taille:
                 morceaux.append(phrase[:taille])
-                phrase = phrase[taille - recouvrement:]
+                phrase = phrase[pas:]
             if phrase.strip():
                 morceaux.append(phrase.strip())
 
@@ -153,9 +159,9 @@ def decouper(texte: str, taille: int = 900, recouvrement: int = 150) -> list[str
             # Le recouvrement ne s'ajoute que s'il tient : un morceau déjà à
             # la taille limite repart seul, sinon le fragment déborderait de
             # ce que l'appelant a demandé.
-            queue = courant[-recouvrement:] if recouvrement else ""
-            tient = queue and len(queue) + len(morceau) + 1 <= taille
-            courant = f"{queue}\n{morceau}" if tient else morceau
+            chevauchement = courant[-recouvrement:] if recouvrement else ""
+            tient = chevauchement and len(chevauchement) + len(morceau) + 1 <= taille
+            courant = f"{chevauchement}\n{morceau}" if tient else morceau
     if courant.strip():
         fragments.append(courant.strip())
     return fragments

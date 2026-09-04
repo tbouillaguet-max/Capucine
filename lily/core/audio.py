@@ -18,13 +18,15 @@ mécanisme sur lequel le barge-in de l'étape 3 viendra se brancher.
 
 from __future__ import annotations
 
+import contextlib
 import queue
+import struct
 import threading
 import wave
 from abc import ABC, abstractmethod
 from array import array
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -153,6 +155,7 @@ class SoundDeviceInput(AudioInput):
         self._queue: queue.Queue[bytes | None] = queue.Queue(maxsize=queue_frames)
         self._stream: Any = None
         self._perdues = 0
+        self._arrete = threading.Event()
 
     def available(self) -> bool:
         return _peripherique_disponible(self.device, "input")
@@ -183,6 +186,7 @@ class SoundDeviceInput(AudioInput):
     def start(self) -> None:
         if self._stream is not None:
             return
+        self._arrete.clear()
         try:
             import sounddevice as sd
         except (ImportError, OSError) as exc:
@@ -203,6 +207,9 @@ class SoundDeviceInput(AudioInput):
                      self._sample_rate, self._frame_size)
 
     def stop(self) -> None:
+        # Le drapeau d'abord : c'est lui qui libère `frames()`, quoi qu'il
+        # arrive à la file.
+        self._arrete.set()
         if self._stream is not None:
             self._stream.stop()
             self._stream.close()
@@ -210,11 +217,23 @@ class SoundDeviceInput(AudioInput):
         if self._perdues:
             logger.warning("%d trames d'entrée perdues (machine surchargée ?)", self._perdues)
             self._perdues = 0
-        self._queue.put_nowait(None) if not self._queue.full() else None
+        with contextlib.suppress(queue.Full):
+            self._queue.put_nowait(None)   # réveille tout de suite si la place existe
 
     def frames(self) -> Iterator[bytes]:
-        while True:
-            frame = self._queue.get()
+        """Trames successives, jusqu'à ``stop()``.
+
+        L'arrêt passe par un drapeau et non par la seule sentinelle : quand la
+        machine est chargée — c'est-à-dire exactement quand on veut s'arrêter
+        proprement — la file est pleine et la sentinelle n'a pas de place. Un
+        `get()` sans délai laisserait alors le fil d'écoute bloqué pour
+        toujours.
+        """
+        while not self._arrete.is_set():
+            try:
+                frame = self._queue.get(timeout=0.25)
+            except queue.Empty:
+                continue
             if frame is None:
                 return
             yield frame
@@ -425,28 +444,79 @@ class MemoryAudioOutput(AudioOutput):
 @dataclass
 class WavFileOutput(AudioOutput):
     """Écrit la parole dans un fichier WAV, pour écouter après coup ce que
-    Lily a dit sans avoir de haut-parleur sous la main."""
+    Lily a dit sans avoir de haut-parleur sous la main.
+
+    Le fichier est ouvert une fois et complété au fil des phrases ; seules les
+    deux tailles de l'en-tête sont réécrites à chaque fois. Rejouer tous les
+    morceaux depuis le début à chaque phrase coûtait un temps quadratique, ce
+    qui se voit sur une réponse longue et s'entend sur une carte SD.
+
+    On écrit l'en-tête à la main plutôt que par ``wave``, pour garder ce que
+    l'ancienne version donnait gratuitement : le fichier est **lisible à tout
+    instant**, pas seulement après ``close()``. Un WAV coupé au milieu d'une
+    séance reste ainsi jouable.
+    """
 
     path: Path
     name: str = "wav"
-    _chunks: list[AudioChunk] = field(default_factory=list)
+    _fichier: Any = None
+    _sample_rate: int | None = None
+    _octets: int = 0
 
     def play(self, chunk: AudioChunk, cancel: threading.Event | None = None) -> bool:
         if cancel is not None and cancel.is_set():
             return False
-        self._chunks.append(chunk)
-        self._ecrire()
+        if not chunk.pcm:
+            return True
+        fichier = self._ouvrir(chunk.sample_rate)
+        fichier.write(chunk.pcm)
+        self._octets += len(chunk.pcm)
+        self._inscrire_les_tailles(fichier)
+        fichier.flush()
         return True
 
-    def _ecrire(self) -> None:
-        if not self._chunks:
-            return
-        with wave.open(str(self.path), "wb") as handle:
-            handle.setnchannels(CHANNELS)
-            handle.setsampwidth(SAMPLE_WIDTH)
-            handle.setframerate(self._chunks[0].sample_rate)
-            for chunk in self._chunks:
-                handle.writeframes(chunk.pcm)
+    def _ouvrir(self, sample_rate: int) -> Any:
+        if self._fichier is None:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            # Volontairement hors gestionnaire de contexte : le descripteur vit
+            # d'une phrase à l'autre, et `close()` le referme.
+            fichier = self.path.open("wb")  # noqa: SIM115
+            fichier.write(_entete_wav(sample_rate))
+            self._fichier, self._sample_rate, self._octets = fichier, sample_rate, 0
+        elif sample_rate != self._sample_rate:
+            # Un WAV n'a qu'une fréquence. Comme avant, c'est celle du premier
+            # morceau qui fait foi — mais on le dit au lieu de le taire.
+            logger.warning(
+                "Morceau à %d Hz écrit dans un WAV ouvert à %d Hz : il sera rejoué "
+                "trop vite ou trop lentement.", sample_rate, self._sample_rate,
+            )
+        return self._fichier
+
+    def _inscrire_les_tailles(self, fichier: Any) -> None:
+        """Les deux seuls champs de l'en-tête qui dépendent de la longueur."""
+        fin = fichier.tell()
+        fichier.seek(4)
+        fichier.write(struct.pack("<I", 36 + self._octets))   # taille RIFF
+        fichier.seek(40)
+        fichier.write(struct.pack("<I", self._octets))        # taille du bloc data
+        fichier.seek(fin)
+
+    def close(self) -> None:
+        if self._fichier is not None:
+            with contextlib.suppress(Exception):
+                self._fichier.close()
+            self._fichier = None
+
+
+def _entete_wav(sample_rate: int, octets: int = 0) -> bytes:
+    """L'en-tête canonique de 44 octets, PCM 16 bits mono."""
+    debit = sample_rate * CHANNELS * SAMPLE_WIDTH
+    return (
+        b"RIFF" + struct.pack("<I", 36 + octets) + b"WAVEfmt "
+        + struct.pack("<IHHIIHH", 16, 1, CHANNELS, sample_rate, debit,
+                      CHANNELS * SAMPLE_WIDTH, SAMPLE_WIDTH * 8)
+        + b"data" + struct.pack("<I", octets)
+    )
 
 
 class NullAudioOutput(AudioOutput):

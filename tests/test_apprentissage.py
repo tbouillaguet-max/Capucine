@@ -334,3 +334,21 @@ def test_chaque_mecanisme_se_desactive_separement(tmp_path: Path) -> None:
         assert magasin.amorce_stt("base") == "base"
     finally:
         magasin.fermer()
+
+
+def test_retenir_un_mot_ne_vide_pas_le_cache_des_routages(tmp_path: Path) -> None:
+    """Les deux caches sont indépendants. Les confondre faisait relire toute la
+    table des routages dès le premier nom propre entendu dans un tour."""
+    magasin = Apprentissage(tmp_path / "m.sqlite")
+    magasin.apprendre_routage("lance un dé à vingt faces", "lancer_de")
+    magasin.phrases_par_outil()
+    assert magasin._cache_phrases is not None
+
+    magasin.retenir_mot("CalculRisque")
+    assert magasin._cache_phrases is not None, "le vocabulaire a vidé le cache du routage"
+    assert magasin._cache_amorce is None
+
+    magasin.amorce_stt()
+    magasin.apprendre_routage("relance le bazar", "lancer_projet")
+    assert magasin._cache_phrases is None
+    assert magasin._cache_amorce is not None, "un routage a vidé le cache du vocabulaire"

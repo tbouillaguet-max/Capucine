@@ -451,9 +451,19 @@ class Catalogue:
 
     def reference(self, question: str, limite: int = 0) -> str:
         """La référence d'API à glisser dans le contexte, bornée en taille."""
+        return self.reference_detaillee(question, limite)[0]
+
+    def reference_detaillee(self, question: str, limite: int = 0) -> tuple[str, int]:
+        """La référence, et le nombre d'entrées qu'elle contient RÉELLEMENT.
+
+        Le nombre n'est pas celui des entrées trouvées mais celui des entrées
+        retenues : le budget en caractères en écarte souvent quelques-unes.
+        C'est ce nombre-là qu'on annonce à l'utilisateur, sinon on lui promet
+        des signatures que le modèle n'a jamais vues.
+        """
         entrees = self.chercher(question, limite)
         if not entrees:
-            return ""
+            return "", 0
         lignes: list[str] = []
         total = 0
         for entree in entrees:
@@ -468,7 +478,7 @@ class Catalogue:
                 rendu = entree.declaration()[: self.caracteres_max]
             lignes.append(rendu)
             total += len(rendu)
-        return "\n\n".join(lignes)
+        return "\n\n".join(lignes), len(lignes)
 
     def par_nom(self, nom: str) -> Entree | None:
         self.construire()

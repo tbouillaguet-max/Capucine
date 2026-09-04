@@ -75,28 +75,32 @@ CONSIGNE_CORRECTION = (
 _PROPOSITION: dict = {"code": "", "description": "", "api": ""}
 
 
-def _api_en_contexte(description: str) -> str:
-    """Les signatures pertinentes du dépôt, ou rien.
+def _api_en_contexte(description: str) -> tuple[str, int]:
+    """Les signatures pertinentes du dépôt, et combien il y en a. Ou rien.
 
     Le mode d'échec numéro un d'un petit modèle sur un dépôt qu'il ne connaît
     pas n'est pas la syntaxe, c'est l'invention d'API. Donnez-lui la
     signature, il ne peut plus l'inventer de travers.
 
+    Le compte vient du catalogue, pas d'un comptage de « def » dans le texte
+    rendu : ce texte contient des lignes d'import et des appels, jamais une
+    déclaration. Le nombre serait resté nul en toutes circonstances.
+
     Ne lève jamais : un catalogue absent doit dégrader vers le comportement
     d'avant, pas empêcher d'écrire du code.
     """
     if not bool(get_config("api_en_contexte", True)):
-        return ""
+        return "", 0
     try:
-        reference = catalogue().reference(
+        reference, nombre = catalogue().reference_detaillee(
             description, limite=int(get_config("fonctions_montrees", 12))
         )
     except Exception:
         get_logger().debug("Pas de catalogue d'API disponible.", exc_info=True)
-        return ""
+        return "", 0
     if not reference:
-        return ""
-    return f"\n\n{CONSIGNE_API}\n\n{reference}"
+        return "", 0
+    return f"\n\n{CONSIGNE_API}\n\n{reference}", nombre
 
 
 def _interpreteur() -> str:
@@ -223,7 +227,7 @@ def ecrire_du_code(description: str) -> dict:
     if not description:
         return {"speak": "Que doit faire ce code ?", "display": "description vide"}
 
-    api = _api_en_contexte(description)
+    api, vues = _api_en_contexte(description)
     _PROPOSITION["api"] = api
     code = _nettoyer(demander_au_modele(
         description, system=(CONSIGNE_AVEC_API if api else CONSIGNE) + api,
@@ -235,7 +239,6 @@ def ecrire_du_code(description: str) -> dict:
     _PROPOSITION["code"] = code
     _PROPOSITION["description"] = description
     lignes = code.splitlines()
-    vues = api.count("\ndef ") + api.count("\nclass ")
     return {
         "speak": (
             f"J'ai écrit {len(lignes)} lignes"
@@ -319,7 +322,7 @@ def coder_et_verifier(description: str, tentatives: int = 0) -> dict:
 
     maximum = max(1, int(tentatives) or int(get_config("tentatives_max", 3)))
     delai = float(get_config("delai_s", 60.0))
-    api = _api_en_contexte(description)
+    api, _ = _api_en_contexte(description)
     _PROPOSITION["api"] = api
     journal: list[str] = []
     code = ""

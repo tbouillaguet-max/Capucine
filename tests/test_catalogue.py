@@ -424,3 +424,32 @@ def test_l_elagage_ne_descend_pas_dans_l_environnement(tmp_path: Path) -> None:
     catalogue = Catalogue(racine)
     catalogue.construire()
     assert catalogue.statistiques()["fichiers"] == 1
+
+
+def test_la_reference_dit_combien_d_entrees_elle_contient(tmp_path: Path) -> None:
+    """Le compte sert à annoncer « en voyant N de vos fonctions ». Il était
+    obtenu en comptant les « def » du texte rendu — or ce texte ne contient que
+    des imports et des appels, jamais une déclaration : il valait toujours 0."""
+    (tmp_path / "api.py").write_text(MODULE, encoding="utf-8")
+    catalogue = Catalogue(tmp_path)
+    texte, nombre = catalogue.reference_detaillee("poids proportionnels plafonnés")
+    assert nombre >= 1
+    assert nombre == len(texte.split("\n\n"))
+    assert "\ndef " not in texte, "le rendu ne contient aucune déclaration à compter"
+    assert catalogue.reference("poids proportionnels plafonnés") == texte
+
+
+def test_le_compte_suit_le_budget_en_caracteres(tmp_path: Path) -> None:
+    """Ce n'est pas le nombre d'entrées TROUVÉES qu'on annonce, mais celui des
+    entrées réellement montrées : le budget en écarte souvent quelques-unes."""
+    (tmp_path / "api.py").write_text(MODULE, encoding="utf-8")
+    _, beaucoup = Catalogue(tmp_path, caracteres_max=100000).reference_detaillee("poids proportionnels plafonnés")
+    _, peu = Catalogue(tmp_path, caracteres_max=80).reference_detaillee(
+        "poids proportionnels plafonnés"
+    )
+    assert 0 < peu <= beaucoup
+
+
+def test_rien_a_montrer_ne_compte_rien(tmp_path: Path) -> None:
+    (tmp_path / "api.py").write_text(MODULE, encoding="utf-8")
+    assert Catalogue(tmp_path).reference_detaillee("recette de la tarte tatin") == ("", 0)

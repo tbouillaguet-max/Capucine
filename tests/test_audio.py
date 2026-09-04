@@ -178,3 +178,62 @@ def _config_audio():
     from lily.core.config import Config
 
     return Config({"audio": {"sample_rate": 16000, "frame_ms": 30}})
+
+
+# --- arrêt du micro et écriture du WAV --------------------------------------
+
+def test_le_micro_rend_la_main_meme_la_file_pleine() -> None:
+    """`stop()` déposait une sentinelle « si la file n'est pas pleine ». Or elle
+    l'est justement quand la machine peine — c'est-à-dire quand on veut
+    s'arrêter — et `frames()` restait alors bloqué pour toujours."""
+    entree = SoundDeviceInput(queue_frames=2)
+    for _ in range(2):
+        entree._queue.put_nowait(b"\x00" * 960)
+    assert entree._queue.full()
+
+    lues: list[bytes] = []
+    fini = threading.Event()
+
+    def consommer() -> None:
+        for frame in entree.frames():
+            lues.append(frame)
+        fini.set()
+
+    fil = threading.Thread(target=consommer, daemon=True)
+    fil.start()
+    entree.stop()
+    assert fini.wait(3.0), "frames() n'a jamais rendu la main"
+    fil.join(1.0)
+    assert lues, "les trames déjà captées doivent être rendues avant l'arrêt"
+
+
+def test_le_wav_n_est_ecrit_qu_une_fois_par_phrase(tmp_path: Path) -> None:
+    """Chaque phrase réécrivait le fichier entier depuis le début : un coût
+    quadratique. On vérifie le contenu, et qu'aucune phrase n'est réécrite."""
+    cible = tmp_path / "sortie.wav"
+    sortie = WavFileOutput(cible)
+    ecrits: list[int] = []
+    for i in range(5):
+        assert sortie.play(AudioChunk(pcm=bytes([i]) * 320, sample_rate=16000))
+        ecrits.append(cible.stat().st_size)
+    sortie.close()
+
+    # Le fichier ne fait que croître d'une phrase, jamais de tout l'historique.
+    assert ecrits == [44 + 320 * (i + 1) for i in range(5)]
+    with wave.open(str(cible), "rb") as handle:
+        assert handle.getframerate() == 16000
+        assert handle.readframes(handle.getnframes()) == b"".join(
+            bytes([i]) * 320 for i in range(5)
+        )
+
+
+def test_le_wav_reste_lisible_avant_sa_fermeture(tmp_path: Path) -> None:
+    """Garder le descripteur ouvert ne doit pas rendre le fichier illisible en
+    cours de séance : l'en-tête est remis à jour à chaque phrase."""
+    cible = tmp_path / "en_cours.wav"
+    sortie = WavFileOutput(cible)
+    sortie.play(AudioChunk(pcm=b"\x01\x02" * 160, sample_rate=22050))
+    with wave.open(str(cible), "rb") as handle:   # sans close() préalable
+        assert handle.getframerate() == 22050
+        assert handle.getnframes() == 160
+    sortie.close()

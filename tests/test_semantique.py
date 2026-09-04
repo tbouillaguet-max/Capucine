@@ -485,3 +485,20 @@ def test_sans_index_la_competence_refuse_proprement(tmp_path) -> None:
     finally:
         for nom in list(registry.plugins):
             registry.unload(nom, notify=False)
+
+
+# --- garde-fous du découpage ------------------------------------------------
+
+def test_un_recouvrement_aussi_large_que_la_taille_ne_boucle_pas() -> None:
+    """Les deux valeurs viennent de la configuration, et rien ne les empêchait
+    d'être égales — auquel cas `phrase[taille - recouvrement:]` valait
+    `phrase[0:]`, donc une boucle sans fin au premier document indexé."""
+    fragments = decouper("mot " * 400, taille=100, recouvrement=100)
+    assert fragments
+    assert all(len(fragment) <= 101 for fragment in fragments)
+
+
+def test_un_recouvrement_absurde_est_borne_sans_rien_perdre() -> None:
+    fragments = decouper("phrase sans ponctuation " * 60, taille=120, recouvrement=5000)
+    assert fragments
+    assert "".join(fragments).replace("\n", "").strip()

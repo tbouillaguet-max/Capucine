@@ -135,8 +135,14 @@ class Apprentissage:
         with self._verrou:
             self._db.close()
 
-    def _invalider(self) -> None:
+    # Deux caches, deux vies : les phrases apprises ne changent pas quand on
+    # retient un nom propre, et le vocabulaire ne change pas quand on apprend
+    # un routage. Les confondre faisait relire toute la table des routages au
+    # premier nom propre entendu dans un tour.
+    def _invalider_routages(self) -> None:
         self._cache_phrases = None
+
+    def _invalider_amorce(self) -> None:
         self._cache_amorce = None
 
     # -- routage ------------------------------------------------------------
@@ -159,7 +165,7 @@ class Apprentissage:
                     (phrase, normalisee, outil, _maintenant()),
                 )
                 self._db.commit()
-                self._invalider()
+                self._invalider_routages()
         except sqlite3.Error:
             logger.exception("Apprentissage du routage impossible.")
             return False
@@ -186,7 +192,7 @@ class Apprentissage:
                 (normalisee, outil),
             ).rowcount
             self._db.commit()
-            self._invalider()
+            self._invalider_routages()
         if supprimees:
             logger.info("Routage oublié : « %s » ↛ %s", phrase[:60], outil)
         return True
@@ -221,7 +227,7 @@ class Apprentissage:
                 "DELETE FROM routages WHERE outil = ?", (outil,)
             ).rowcount
             self._db.commit()
-            self._invalider()
+            self._invalider_routages()
         return nombre
 
     # -- vocabulaire --------------------------------------------------------
@@ -249,7 +255,7 @@ class Apprentissage:
                 (mot, source, _maintenant()),
             )
             self._db.commit()
-            self._invalider()
+            self._invalider_amorce()
         return not connu
 
     def moissonner(self, texte: str, source: str = "conversation") -> list[str]:
@@ -302,7 +308,7 @@ class Apprentissage:
                 "DELETE FROM vocabulaire WHERE mot LIKE ?", (f"%{motif}%",)
             ).rowcount
             self._db.commit()
-            self._invalider()
+            self._invalider_amorce()
         return nombre
 
     # -- introspection ------------------------------------------------------
@@ -322,7 +328,8 @@ class Apprentissage:
             self._db.execute("DELETE FROM routages")
             self._db.execute("DELETE FROM vocabulaire")
             self._db.commit()
-            self._invalider()
+            self._invalider_routages()
+            self._invalider_amorce()
 
 
 def _maintenant() -> str:

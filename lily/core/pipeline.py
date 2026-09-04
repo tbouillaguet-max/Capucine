@@ -706,6 +706,12 @@ class Pipeline:
         """
         self._listener = listener
         mode_repos = ListenMode.WAKE if use_wake else ListenMode.UTTERANCE
+        # Le mode suivi abaisse `max_wait_s` le temps d'une fenêtre ; il faut
+        # donc savoir à quoi le ramener. C'est la valeur configurée en
+        # `vad.max_wait_s`, pas `max_utterance_s`, qui répond à une tout autre
+        # question : celle-ci borne la LONGUEUR d'un énoncé, celle-là le temps
+        # qu'on accorde à quelqu'un pour le COMMENCER.
+        attente_par_defaut = listener.endpointer.max_wait_s
         listener.set_mode(mode_repos)
         self._set_state(State.IDLE)
 
@@ -721,7 +727,7 @@ class Pipeline:
                 logger.info("Éveil : %s (%.2f)", evenement.wake.word, evenement.wake.score)
                 self._eveil_a_etiqueter = True
                 await self._bip()
-                listener.endpointer.max_wait_s = self.max_utterance_s
+                listener.endpointer.max_wait_s = attente_par_defaut
                 listener.set_mode(ListenMode.UTTERANCE)
                 self._set_state(State.LISTEN)
                 continue
@@ -729,7 +735,7 @@ class Pipeline:
             if evenement.kind == "barge_in":
                 logger.info("On me coupe la parole : j'écoute.")
                 self.cancel_turn()
-                listener.endpointer.max_wait_s = self.max_utterance_s
+                listener.endpointer.max_wait_s = attente_par_defaut
                 listener.set_mode(ListenMode.UTTERANCE)
                 self._set_state(State.LISTEN)
                 continue
@@ -744,14 +750,21 @@ class Pipeline:
                 # Réveillée pour rien : c'est l'exemple négatif le plus
                 # précieux qui soit, et il ne s'invente pas en studio.
                 self._etiqueter_l_eveil(bon=False)
+                listener.endpointer.max_wait_s = attente_par_defaut
                 listener.set_mode(mode_repos)
                 self._set_state(State.IDLE)
                 continue
 
-            await self._tour_depuis_enonce(listener, enonce, mode_repos)
+            await self._tour_depuis_enonce(
+                listener, enonce, mode_repos, attente_par_defaut
+            )
 
     async def _tour_depuis_enonce(
-        self, listener: VoiceListener, enonce: Utterance, mode_repos: ListenMode
+        self,
+        listener: VoiceListener,
+        enonce: Utterance,
+        mode_repos: ListenMode,
+        attente_par_defaut: float | None = None,
     ) -> None:
         """Transcrit, répond, puis ouvre la fenêtre de suivi."""
         listener.set_mode(ListenMode.PAUSED)
@@ -783,6 +796,8 @@ class Pipeline:
             listener.set_mode(ListenMode.UTTERANCE)
             self._set_state(State.LISTEN)
         else:
+            if attente_par_defaut is not None:
+                listener.endpointer.max_wait_s = attente_par_defaut
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
 
