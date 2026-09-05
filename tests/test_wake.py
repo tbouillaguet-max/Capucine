@@ -188,8 +188,9 @@ def test_le_montage_bascule_sur_vosk_si_le_modele_n_est_pas_entraine(
     assert moteur is not None and moteur.name == "vosk"
 
 
-def test_sans_aucun_moteur_on_ecoute_en_permanence(tmp_path: Path) -> None:
-    # Dégradé mais utilisable : mieux que refuser de démarrer.
+def test_sans_aucun_moteur_la_fabrique_rend_rien(tmp_path: Path) -> None:
+    """La fabrique constate, elle ne décide pas : c'est la boucle vocale qui
+    tranche entre « écouter la pièce » et « s'arrêter en disant pourquoi »."""
     moteur = build_wake(_config(
         engine="openwakeword",
         models_dir=str(tmp_path / "vide"),

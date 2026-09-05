@@ -9,7 +9,15 @@ language = "fr"
 name = "Lily"
 persona_file = "config/persona.txt"
 memory_turns = 6            # nombre de tours conservés en mémoire courte
-follow_up_seconds = 8.0     # fenêtre du mode suivi, sans redire « Lily » (étape 3)
+follow_up_seconds = 8.0     # durée de la fenêtre de suivi, sans redire « Lily »
+# QUAND cette fenêtre s'ouvre. Le suivi existe pour une raison précise : quand
+# Lily vient de poser une question, exiger son nom pour lui répondre est
+# absurde. L'ouvrir après CHAQUE réponse revient à écouter la pièce huit
+# secondes sur dix.
+#   question — seulement quand elle attend une réponse (défaut)
+#   toujours — après chaque réponse
+#   jamais   — jamais, il faut redire son nom
+suivi = "question"
 announce_new_skills = true  # annonce vocale des compétences nouvellement chargées
 
 [plugins]
@@ -183,11 +191,13 @@ models_dir = "models/silero"
 
 [barge_in]
 # Ce qui autorise l'utilisateur à couper la parole à Lily.
-#   voix  : toute parole soutenue l'interrompt (défaut)
-#   eveil : seul « Lily » l'interrompt — beaucoup plus sûr sur haut-parleur,
-#           où le micro entend la réponse en cours
+#   eveil : seul « Lily » l'interrompt (défaut) — sur haut-parleur, le micro
+#           entend la réponse en cours, et une conversation à côté suffisait
+#           à la couper PUIS à relancer un tour que personne n'avait demandé
+#   voix  : toute parole soutenue l'interrompt — confortable au casque, où il
+#           n'y a pas d'écho, pénible dans une pièce vivante
 #   off   : elle finit toujours sa phrase
-mode = "voix"
+mode = "eveil"
 threshold = 0.85            # plus haut que l'écoute normale, à cause de l'écho
 min_speech_ms = 300
 guard_ms = 400              # on ignore le tout début de la réponse

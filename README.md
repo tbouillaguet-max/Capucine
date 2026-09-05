@@ -925,12 +925,27 @@ devienne pas une commande.
 micro entend le haut-parleur et Lily se coupe elle-même. Trois garde-fous
 réglables : un seuil plus haut que pour l'écoute normale (0,85), un délai de
 garde au début de la réponse, et une durée de parole soutenue exigée. Au
-casque, on peut tout abaisser. Sur haut-parleur ouvert — le cas d'un Pi —
-`barge_in.mode = "eveil"` (n'interrompre que si l'on redit « Lily ») reste
-le plus sûr ; c'est le défaut du profil Pi.
+casque, on peut tout abaisser. `barge_in.mode = "eveil"` — n'interrompre que
+si l'on redit « Lily » — est le **défaut**, parce que sur haut-parleur ouvert
+une conversation à côté ne se contentait pas de la couper : elle relançait un
+tour que personne n'avait demandé. `mode = "voix"` rétablit l'interruption sur
+toute parole soutenue, confortable au casque.
 
-**Le mode suivi** garde l'écoute ouverte quelques secondes après la réponse :
-on enchaîne sans redire le nom. `assistant.follow_up_seconds = 0` le désactive.
+**Le mode suivi** garde l'écoute ouverte quelques secondes après la réponse,
+pour enchaîner sans redire le nom. Il ne s'ouvre pas après n'importe quelle
+réponse : seulement quand l'échange est resté ouvert — Lily attend un oui ou
+un non, ou sa réponse se termine par une question. Exiger son nom pour
+répondre à une question qu'elle vient de poser serait absurde ; laisser la
+fenêtre ouverte après *chaque* réponse revient à écouter la pièce huit
+secondes sur dix. `assistant.suivi = "toujours"` rétablit l'ancien
+comportement, `"jamais"` ferme la fenêtre, `follow_up_seconds = 0` aussi.
+
+**Sans détecteur de mot d'éveil, Lily ne démarre pas** en écoute permanente.
+Elle l'a fait, avec une ligne d'avertissement, et c'est le pire des défauts
+pour un micro posé dans une pièce : tout ce qui se dit part en transcription
+puis au modèle. Le message d'erreur nomme les quatre issues — entraîner le
+modèle, installer le repli Vosk, `--push-to-talk`, ou `--no-wake` pour
+demander l'écoute permanente en connaissance de cause.
 
 ### Configuration
 

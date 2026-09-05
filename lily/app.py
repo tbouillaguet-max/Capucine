@@ -34,6 +34,7 @@ from .core.engines.factory import (
     build_vad,
     build_wake,
 )
+from .core.errors import EngineUnavailable
 from .core.interfaces.llm import LLMEngine, Message
 from .core.interfaces.stt import STTEngine
 from .core.interfaces.tts import TTSEngine
@@ -234,6 +235,7 @@ def build_assistant(
         announce_new_skills=bool(config.get("assistant.announce_new_skills", True)),
         max_utterance_s=float(config.get("vad.max_utterance_s", 20.0)),
         follow_up_s=float(config.get("assistant.follow_up_seconds", 8.0)),
+        suivi=str(config.get("assistant.suivi", "question")),
         wake_beep=bool(config.get("audio.wake_beep", True)),
         apprentissage=apprentissage,
         connaissances=connaissances,
@@ -302,6 +304,23 @@ def start_hot_reload(assistant: Assistant) -> bool:
     return assistant.watcher.start()
 
 
+def _mode_de_barge_in(config: Config, wake: WakeWordEngine | None) -> BargeInMode:
+    """Le mode demandé, ou le repli s'il n'est pas tenable.
+
+    « eveil » est le défaut parce qu'il est le seul sûr sur haut-parleur : sans
+    lui, une conversation à côté coupe la parole à Lily ET relance un tour.
+    Mais il suppose un détecteur d'éveil ; à défaut, on retombe sur la voix
+    plutôt que de laisser l'interruption silencieusement morte.
+    """
+    mode = BargeInMode(str(config.get("barge_in.mode", "eveil")))
+    if mode is BargeInMode.WAKE and wake is None:
+        logger.info(
+            "Barge-in « eveil » demandé sans détecteur d'éveil : repli sur « voix »."
+        )
+        return BargeInMode.VOICE
+    return mode
+
+
 def build_listener(
     assistant: Assistant,
     *,
@@ -356,7 +375,7 @@ def build_listener(
         on_event=assistant.pipeline.on_listener_event,
         wake=assistant.wake,
         barge_in=barge_in,
-        barge_in_mode=BargeInMode(str(config.get("barge_in.mode", "voix"))),
+        barge_in_mode=_mode_de_barge_in(config, assistant.wake),
         start_mode=ListenMode.PAUSED,
         corpus=assistant.corpus,
     )
@@ -637,12 +656,25 @@ async def _boucle_continue(assistant: Assistant, *, use_wake: bool = True) -> in
     mot = assistant.config.get("wake.word", "lily")
 
     if listener.wake is None:
-        use_wake = False
-        print("Sans mot d'éveil : je réagis à tout ce que j'entends.")
+        if use_wake:
+            # Auparavant on basculait ici en écoute permanente, avec une ligne
+            # d'avertissement. C'est le pire des défauts pour un micro posé
+            # dans une pièce : sans mot d'éveil, TOUT ce qui se dit est
+            # transcrit puis soumis au modèle. On s'arrête, et on dit comment
+            # en sortir — y compris comment demander ce comportement-là.
+            raise EngineUnavailable(
+                "Aucun détecteur de mot d'éveil n'est disponible, et sans lui "
+                "j'écouterais tout ce qui se dit dans la pièce.\n"
+                "  • entraînez le modèle : python tools/entrainer_lily.py --preparer\n"
+                "  • ou installez le repli Vosk : pip install vosk, puis\n"
+                "    python -m lily.core.downloads vosk\n"
+                "  • ou parlez à la demande : python main.py --push-to-talk\n"
+                "  • ou assumez l'écoute permanente : python main.py --no-wake"
+            )
+        print("Écoute permanente demandée : je réagis à tout ce que j'entends.")
     else:
         print(f"Dites « {mot} » pour me réveiller.")
-    if float(assistant.config.get("assistant.follow_up_seconds", 8.0)) > 0:
-        print("Après ma réponse, enchaînez sans redire mon nom.")
+    print(_decrire_le_suivi(assistant.config))
     print("Tapez une phrase pour me la dire au clavier. /aide, /quitter.\n")
 
     listener.start()
@@ -661,6 +693,18 @@ async def _boucle_continue(assistant: Assistant, *, use_wake: bool = True) -> in
             with contextlib.suppress(asyncio.CancelledError):
                 await tache
     return 0
+
+
+def _decrire_le_suivi(config: Config) -> str:
+    """Dire à quelle condition l'écoute se rouvre sans le mot d'éveil."""
+    if float(config.get("assistant.follow_up_seconds", 8.0)) <= 0:
+        return "Il faut redire mon nom à chaque fois."
+    suivi = str(config.get("assistant.suivi", "question"))
+    if suivi == "jamais":
+        return "Il faut redire mon nom à chaque fois."
+    if suivi == "toujours":
+        return "Après chaque réponse, enchaînez sans redire mon nom."
+    return "Quand je vous pose une question, répondez sans redire mon nom."
 
 
 async def _boucle_clavier(assistant: Assistant, arret: asyncio.Event) -> None:

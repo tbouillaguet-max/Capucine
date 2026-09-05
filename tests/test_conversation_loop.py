@@ -11,10 +11,12 @@ import json
 import struct
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from lily.core.audio import MemoryAudioInput, MemoryAudioOutput
+from lily.core.config import Config
 from lily.core.conversation import Conversation
 from lily.core.endpointer import BargeInDetector, Endpointer
 from lily.core.engines.llm.mock import MockLLM
@@ -22,6 +24,7 @@ from lily.core.engines.stt.scripted import ScriptedSTT
 from lily.core.engines.tts.silent import SilentTTS
 from lily.core.engines.vad.scripted import ScriptedVAD
 from lily.core.engines.wake.scripted import ScriptedWakeWord
+from lily.core.errors import EngineUnavailable
 from lily.core.listener import BargeInMode, ListenMode, VoiceListener
 from lily.core.pipeline import Pipeline, State
 from lily.core.registry import PluginRegistry
@@ -36,6 +39,27 @@ from lily.plugin import skill
 def heure() -> str:
     """Donne l'heure courante."""
     return "Il est midi."
+'''
+
+PLUGIN_QUESTION = '''
+from lily.plugin import skill
+
+@skill(description="Demande une précision.", examples=["quelle heure est-il"])
+def heure() -> str:
+    """Répond en posant une question."""
+    return "Il est midi. Voulez-vous que je note quelque chose ?"
+'''
+
+PLUGIN_A_CONFIRMER = '''
+from lily.plugin import skill
+
+@skill(
+    description="Efface tout.",
+    examples=["efface tout"],
+    confirm="Voulez-vous vraiment tout effacer ?",
+)
+def effacer() -> str:
+    return "C'est effacé."
 '''
 
 # Parle une dizaine de trames, puis se tait : de quoi terminer un énoncé.
@@ -86,6 +110,7 @@ def monter(
     barge_in_mode=BargeInMode.VOICE,
     llm=None,
     follow_up_s: float = 5.0,
+    suivi: str = "question",
     on_state=None,
     sortie_lente: bool = False,
 ):
@@ -102,6 +127,7 @@ def monter(
         audio_out=sortie,
         echo=False,
         follow_up_s=follow_up_s,
+        suivi=suivi,
         wake_beep=False,
         on_state=on_state,
     )
@@ -157,17 +183,78 @@ def test_un_tour_complet_depuis_le_mot_d_eveil(ecrire_plugin, dossier_plugins) -
     assert sortie.texte == "Il est midi."
 
 
-def test_le_mode_suivi_enchaine_sans_redire_le_nom(ecrire_plugin, dossier_plugins) -> None:
-    # Le mot d'éveil ne se déclenche qu'une fois (hits=[0]) : si un second
-    # tour a lieu, c'est bien que le mode suivi a gardé l'écoute ouverte.
-    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+def test_le_mode_suivi_enchaine_quand_lily_a_pose_une_question(
+    ecrire_plugin, dossier_plugins
+) -> None:
+    """Le mot d'éveil ne se déclenche qu'une fois (hits=[0]) : un second tour
+    prouve que l'écoute est restée ouverte.
+
+    Elle ne reste ouverte que parce que la réponse se termine par une question.
+    C'est la raison d'être du mode suivi : exiger « Lily » pour répondre à une
+    question qu'elle vient de poser serait absurde.
+    """
+    ecrire_plugin("horloge.py", PLUGIN_QUESTION)
     pipeline, listener, sortie = monter(
         dossier_plugins, dit=["quelle heure est-il", "quelle heure est-il"], follow_up_s=5.0
     )
 
     asyncio.run(faire_tourner(pipeline, listener, lambda: len(sortie.chunks) >= 2))
 
+    assert len(sortie.chunks) >= 2
+
+
+def test_le_suivi_ne_s_ouvre_pas_apres_une_simple_reponse(
+    ecrire_plugin, dossier_plugins
+) -> None:
+    """Le cœur de « qu'elle ne réponde qu'à ce qui lui est demandé ».
+
+    Après une réponse ordinaire, l'écoute revient au mot d'éveil. Sans cela,
+    huit secondes sur dix la pièce entière était transcrite puis soumise au
+    modèle : une conversation à côté, la télévision, et Lily repartait pour un
+    tour que personne ne lui avait demandé.
+    """
+    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+    pipeline, listener, sortie = monter(
+        dossier_plugins, dit=["quelle heure est-il", "et le chat du voisin"], follow_up_s=5.0
+    )
+
+    async def scenario() -> None:
+        await faire_tourner(pipeline, listener, lambda: bool(sortie.chunks))
+        assert listener.mode is ListenMode.WAKE or listener.pending is ListenMode.WAKE
+
+    asyncio.run(scenario())
+    assert [c.text for c in sortie.chunks] == ["Il est midi."]
+
+
+def test_on_peut_rendre_le_suivi_inconditionnel(ecrire_plugin, dossier_plugins) -> None:
+    """`assistant.suivi = "toujours"` rétablit l'ancien comportement."""
+    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+    pipeline, listener, sortie = monter(
+        dossier_plugins,
+        dit=["quelle heure est-il", "quelle heure est-il"],
+        follow_up_s=5.0,
+        suivi="toujours",
+    )
+
+    asyncio.run(faire_tourner(pipeline, listener, lambda: len(sortie.chunks) >= 2))
+
     assert [c.text for c in sortie.chunks[:2]] == ["Il est midi.", "Il est midi."]
+
+
+def test_une_confirmation_en_attente_garde_l_ecoute_ouverte(
+    ecrire_plugin, dossier_plugins
+) -> None:
+    """L'autre cas où l'échange reste ouvert : Lily attend un oui ou un non.
+    Exiger son nom pour dire « oui » serait absurde aussi."""
+    ecrire_plugin("dangereux.py", PLUGIN_A_CONFIRMER)
+    pipeline, listener, sortie = monter(
+        dossier_plugins, dit=["efface tout", "oui"], follow_up_s=5.0
+    )
+
+    asyncio.run(faire_tourner(pipeline, listener, lambda: len(sortie.chunks) >= 2))
+
+    assert "vraiment" in sortie.chunks[0].text.lower()
+    assert sortie.chunks[1].text == "C'est effacé."
 
 
 def test_sans_mode_suivi_on_retourne_attendre_le_mot_d_eveil(
@@ -342,3 +429,57 @@ def test_le_montage_de_l_ecoute_suit_la_configuration(tmp_path, dossier_plugins)
         assert assistant.pipeline.follow_up_s == pytest.approx(3.0)
     finally:
         asyncio.run(assistant.aclose())
+
+
+# --- ce qui déclenche une écoute, et ce qui ne le devrait pas ---------------
+
+def test_sans_mot_d_eveil_la_boucle_refuse_de_demarrer(monkeypatch) -> None:
+    """Auparavant, faute de détecteur, Lily basculait en écoute permanente
+    avec une ligne d'avertissement — le pire des défauts pour un micro posé
+    dans une pièce : tout ce qui se dit part en transcription puis au modèle.
+
+    Elle s'arrête maintenant, et le message dit comment en sortir, y compris
+    comment demander ce comportement-là exprès.
+    """
+    from lily import app as module_app
+
+    sans_eveil = SimpleNamespace(wake=None)
+    monkeypatch.setattr(module_app, "build_listener", lambda *a, **k: sans_eveil)
+    assistant = SimpleNamespace(
+        pipeline=None, config=Config({"wake": {"word": "lily"}}), listener=None
+    )
+
+    with pytest.raises(EngineUnavailable) as erreur:
+        asyncio.run(module_app._boucle_continue(assistant, use_wake=True))
+
+    message = str(erreur.value)
+    assert "entrainer_lily.py" in message
+    assert "--push-to-talk" in message
+    assert "--no-wake" in message
+
+
+def test_l_ecoute_permanente_reste_possible_si_on_la_demande(monkeypatch) -> None:
+    """`--no-wake` reste un choix légitime — simplement, c'en est un."""
+    from lily import app as module_app
+
+    demarre = False
+
+    class ListenerFactice:
+        wake = None
+        def start(self) -> None:
+            nonlocal demarre
+            demarre = True
+        def stop(self) -> None: ...
+
+    async def rendre_la_main(*_a, **_k) -> None:
+        return None
+
+    monkeypatch.setattr(module_app, "build_listener", lambda *a, **k: ListenerFactice())
+    pipeline = SimpleNamespace(run_conversation=rendre_la_main)
+    assistant = SimpleNamespace(
+        pipeline=pipeline, config=Config({"wake": {"word": "lily"}}), listener=None
+    )
+    monkeypatch.setattr(module_app, "_boucle_clavier", rendre_la_main)
+
+    assert asyncio.run(module_app._boucle_continue(assistant, use_wake=False)) == 0
+    assert demarre

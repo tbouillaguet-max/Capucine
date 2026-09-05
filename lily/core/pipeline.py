@@ -103,6 +103,7 @@ class Pipeline:
         max_utterance_s: float = 20.0,
         echo: bool = True,
         follow_up_s: float = 8.0,
+        suivi: str = "question",
         wake_beep: bool = True,
         apprentissage: Any = None,
         connaissances: Any = None,
@@ -120,6 +121,11 @@ class Pipeline:
         self.max_utterance_s = max_utterance_s
         self.echo = echo
         self.follow_up_s = follow_up_s
+        # Quand rouvrir l'écoute après une réponse, sans mot d'éveil :
+        #   « question » — seulement si Lily attend une réponse (défaut)
+        #   « toujours » — après chaque réponse
+        #   « jamais »   — jamais, il faut redire son nom
+        self.suivi = suivi
         self.wake_beep = wake_beep
         self.apprentissage = apprentissage
         self.connaissances = connaissances
@@ -842,13 +848,13 @@ class Pipeline:
 
         self._etiqueter_l_eveil(bon=True)
         print(f"Vous  › {transcription.text}")
-        await self.handle_and_speak(transcription.text, telemetry=telemetrie)
+        resultat = await self.handle_and_speak(transcription.text, telemetry=telemetrie)
 
         if listener.mode is ListenMode.UTTERANCE or listener.pending is ListenMode.UTTERANCE:
             # Le barge-in a déjà rouvert l'écoute : on ne la referme pas.
             return
 
-        if self.follow_up_s > 0:
+        if self.follow_up_s > 0 and self._suivi_justifie(resultat):
             # Mode suivi : quelques secondes pendant lesquelles on enchaîne
             # sans redire « Lily ».
             listener.endpointer.max_wait_s = self.follow_up_s
@@ -859,6 +865,27 @@ class Pipeline:
                 listener.endpointer.max_wait_s = attente_par_defaut
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
+
+    def _suivi_justifie(self, resultat: TurnResult) -> bool:
+        """Faut-il rouvrir l'écoute sans exiger le mot d'éveil ?
+
+        Le mode suivi existe pour une raison précise : quand Lily vient de
+        poser une question, exiger son nom pour lui répondre est absurde. Mais
+        laisser la fenêtre ouverte après CHAQUE réponse revient à écouter la
+        pièce huit secondes sur dix — une conversation à côté, la télévision,
+        et elle repart pour un tour sans que personne lui ait parlé.
+
+        On ne rouvre donc que quand l'échange est resté ouvert : une
+        confirmation en attente, ou une réponse qui se termine par un point
+        d'interrogation. « toujours » rétablit l'ancien comportement.
+        """
+        if self.suivi == "jamais":
+            return False
+        if self.suivi == "toujours":
+            return True
+        if self._confirmation is not None:
+            return True
+        return resultat.speak.strip().endswith(("?", "\u202f?", "\xa0?"))
 
     def _etiqueter_l_eveil(self, *, bon: bool) -> None:
         """Dit au corpus si le dernier déclenchement était justifié.
