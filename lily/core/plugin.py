@@ -55,6 +55,8 @@ __all__ = [
     "set_connaissances",
     "corpus",
     "set_corpus",
+    "locuteur",
+    "set_locuteur",
     "journal",
     "set_journal",
     "appeler_competence",
@@ -381,6 +383,7 @@ _CONVERSATION: Any = None
 _APPRENTISSAGE: Any = None
 _CONNAISSANCES: Any = None
 _CORPUS: Any = None
+_LOCUTEUR: Any = None
 _REGISTRE: Any = None
 _JOURNAL: Any = None
 _DOSSIER_PLUGINS: Any = None
@@ -506,6 +509,26 @@ def corpus() -> Any:
             "(section [corpus] absente)."
         )
     return _CORPUS
+
+
+def set_locuteur(instance: Any) -> None:
+    """Branche ce que Lily sait de votre voix."""
+    global _LOCUTEUR
+    _LOCUTEUR = instance
+
+
+def locuteur() -> Any:
+    """Ce qu'elle a appris de votre voix — enrôlement, reconnaissance, état.
+
+    Rendu même éteint, comme le corpus d'éveil : une compétence doit pouvoir
+    expliquer comment l'allumer plutôt que de refuser sans rien dire.
+    """
+    if _LOCUTEUR is None:
+        raise SkillRefused(
+            "La reconnaissance de la voix n'existe pas dans cette configuration "
+            "(section [voix] absente)."
+        )
+    return _LOCUTEUR
 
 
 def set_journal(instance: Any) -> None:

@@ -109,6 +109,7 @@ class Pipeline:
         connaissances: Any = None,
         corpus: Any = None,
         journal: Any = None,
+        locuteur: Any = None,
     ) -> None:
         self.registry = registry
         self.router = router
@@ -132,6 +133,9 @@ class Pipeline:
         # Le corpus d'éveil attend un verdict après chaque déclenchement :
         # ce qui suit dit si elle a eu raison de se réveiller.
         self.corpus = corpus
+        # Ce qu'elle sait de VOTRE voix. Consulté après l'éveil, avant la
+        # transcription : inutile de faire tourner Whisper sur la télévision.
+        self.locuteur = locuteur
         self._eveil_a_etiqueter = False
         # Les derniers gestes réussis : de quoi apprendre une routine en
         # disant « retiens ça » après les avoir faits.
@@ -710,6 +714,11 @@ class Pipeline:
         # recopiés après — ils n'atteindraient jamais le carnet de latences,
         # et la transcription est justement l'étage le plus cher sur un Pi.
         telemetry = TurnTelemetry(name="tour vocal")
+        # Pas de filtre de voix ici : appuyer sur une touche pour parler EST
+        # la preuve que c'est bien vous. On garde quand même la capture, parce
+        # que c'est le mode le plus commode pour enrôler sa voix au calme.
+        if self.locuteur is not None:
+            self.locuteur.derniere_capture = audio
         transcription = await self.transcribe(audio, telemetry)
         telemetry.record("audio_ms", round(audio.duration_s * 1000, 1))
         if not transcription:
@@ -833,6 +842,19 @@ class Pipeline:
         """Transcrit, répond, puis ouvre la fenêtre de suivi."""
         listener.set_mode(ListenMode.PAUSED)
         telemetrie = TurnTelemetry(name="tour vocal")
+
+        if not await self._est_bien_vous(enonce.audio, telemetrie):
+            # Quelqu'un — ou quelque chose — a dit son nom, mais pas vous.
+            # On s'arrête avant la transcription : Whisper est l'étage le plus
+            # cher de la chaîne, et il n'a rien à faire sur la télévision.
+            self._etiqueter_l_eveil(bon=False)
+            telemetrie.emit(etage="voix_inconnue")
+            if attente_par_defaut is not None:
+                listener.endpointer.max_wait_s = attente_par_defaut
+            listener.set_mode(mode_repos)
+            self._set_state(State.IDLE)
+            return
+
         transcription = await self.transcribe(enonce.audio, telemetrie)
         telemetrie.record("audio_ms", round(enonce.audio.duration_s * 1000, 1))
 
@@ -865,6 +887,28 @@ class Pipeline:
                 listener.endpointer.max_wait_s = attente_par_defaut
             listener.set_mode(mode_repos)
             self._set_state(State.IDLE)
+
+    async def _est_bien_vous(self, audio: AudioBuffer, telemetrie: TurnTelemetry) -> bool:
+        """L'énoncé vient-il de la personne enrôlée ?
+
+        Rend ``True`` dès que la question ne se pose pas — filtre éteint, voix
+        jamais apprise, moteur absent. Ne lève jamais : une comparaison qui
+        échoue laisse passer, parce qu'un assistant sourd à son propriétaire
+        est plus grave qu'un assistant qui répond à un invité.
+
+        La capture est gardée au passage : c'est elle que reprendra
+        « apprends ma voix », un plugin ne voyant jamais l'audio.
+        """
+        if self.locuteur is None:
+            return True
+        self.locuteur.derniere_capture = audio
+        if not self.locuteur.opere:
+            return True
+        with telemetrie.stage("voix_ms"):
+            verdict = await asyncio.to_thread(self.locuteur.reconnait, audio)
+        if not verdict:
+            logger.info("Éveil ignoré : %s (%.3f).", verdict.raison, verdict.score)
+        return bool(verdict)
 
     def _suivi_justifie(self, resultat: TurnResult) -> bool:
         """Faut-il rouvrir l'écoute sans exiger le mot d'éveil ?

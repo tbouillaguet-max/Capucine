@@ -483,3 +483,109 @@ def test_l_ecoute_permanente_reste_possible_si_on_la_demande(monkeypatch) -> Non
 
     assert asyncio.run(module_app._boucle_continue(assistant, use_wake=False)) == 0
     assert demarre
+
+
+# --- ne répondre qu'à VOTRE voix -------------------------------------------
+
+class _VoixDeSynthese:
+    """Un moteur de signature scripté : chaque énoncé porte son locuteur.
+
+    On éprouve le CÂBLAGE — qui décide, à quel moment, et ce qui est épargné
+    quand la réponse est non — pas la qualité acoustique du vrai moteur, dont
+    tests/test_voix.py se charge sur des voix synthétiques.
+    """
+
+    name = model = "scripte"
+
+    def __init__(self, locuteurs: list[str]) -> None:
+        self.locuteurs = list(locuteurs)
+        self.appels = 0
+
+    def available(self) -> bool:
+        return True
+
+    def describe(self) -> str:
+        return "scripte"
+
+    def encode(self, audio) -> list[float]:
+        qui = self.locuteurs[min(self.appels, len(self.locuteurs) - 1)]
+        self.appels += 1
+        return [1.0, 0.0] if qui == "moi" else [0.0, 1.0]
+
+    def close(self) -> None: ...
+
+
+def _extrait() -> MemoryAudioInput:
+    from lily.core.audio import AudioBuffer
+
+    return AudioBuffer(b"\x01\x02" * 8000, 16000)
+
+
+def _voix_enrolee(tmp_path, locuteurs: list[str]):
+    from lily.core.locuteur import Locuteur
+
+    voix = Locuteur(
+        tmp_path / "v.sqlite", _VoixDeSynthese(locuteurs), actif=True,
+        echantillons_min=2, seuil=0.62, apprentissage_continu=False,
+    )
+    voix.enroler(_extrait())
+    voix.enroler(_extrait())
+    assert voix.opere
+    return voix
+
+
+def test_un_eveil_qui_ne_vient_pas_de_vous_est_abandonne(
+    tmp_path, ecrire_plugin, dossier_plugins
+) -> None:
+    """La télévision dit « Lily ». Elle ne doit pas répondre — et surtout pas
+    faire tourner Whisper pour s'en apercevoir : c'est l'étage le plus cher de
+    la chaîne, et il n'a rien à faire sur une voix qui n'est pas la vôtre."""
+    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+    # Les deux premiers appels servent à enrôler ; le troisième est l'intrus.
+    voix = _voix_enrolee(tmp_path, ["moi", "moi", "quelqu_un_d_autre"])
+
+    pipeline, listener, sortie = monter(
+        dossier_plugins, dit=["quelle heure est-il"], follow_up_s=0.0
+    )
+    pipeline.locuteur = voix
+
+    asyncio.run(faire_tourner(
+        pipeline, listener,
+        lambda: listener.mode is ListenMode.WAKE or listener.pending is ListenMode.WAKE,
+    ))
+
+    assert sortie.chunks == [], "Lily a répondu à une voix qu'elle ne connaît pas"
+    assert pipeline.stt.buffers == [], "la transcription a tourné pour rien"
+    voix.fermer()
+
+
+def test_votre_voix_passe_et_la_capture_est_gardee(
+    tmp_path, ecrire_plugin, dossier_plugins
+) -> None:
+    """Le pendant. Et la capture reste disponible : c'est elle que reprend
+    « apprends ma voix », un plugin ne voyant jamais l'audio."""
+    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+    voix = _voix_enrolee(tmp_path, ["moi"] * 8)
+
+    pipeline, listener, sortie = monter(
+        dossier_plugins, dit=["quelle heure est-il"], follow_up_s=0.0
+    )
+    pipeline.locuteur = voix
+
+    asyncio.run(faire_tourner(pipeline, listener, lambda: bool(sortie.chunks)))
+
+    assert sortie.texte == "Il est midi."
+    assert voix.derniere_capture is not None
+    voix.fermer()
+
+
+def test_sans_reconnaissance_rien_ne_change(ecrire_plugin, dossier_plugins) -> None:
+    """Le défaut : aucun locuteur branché, aucun filtre, le tour se déroule."""
+    ecrire_plugin("horloge.py", PLUGIN_HEURE)
+    pipeline, listener, sortie = monter(
+        dossier_plugins, dit=["quelle heure est-il"], follow_up_s=0.0
+    )
+    assert pipeline.locuteur is None
+
+    asyncio.run(faire_tourner(pipeline, listener, lambda: bool(sortie.chunks)))
+    assert sortie.texte == "Il est midi."

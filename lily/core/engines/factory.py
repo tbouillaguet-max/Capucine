@@ -26,6 +26,7 @@ from ..audio import (
 from ..errors import ConfigError, EngineUnavailable
 from ..interfaces.embeddings import EmbeddingEngine
 from ..interfaces.llm import LLMEngine
+from ..interfaces.locuteur import SpeakerEngine
 from ..interfaces.stt import STTEngine
 from ..interfaces.tts import TTSEngine
 from ..interfaces.vad import VADEngine
@@ -64,6 +65,11 @@ EMBEDDING_ENGINES: dict[str, tuple[str, str]] = {
     "ollama": ("lily.core.engines.embeddings.ollama", "OllamaEmbeddings"),
     "llamacpp": ("lily.core.engines.embeddings.llamacpp", "LlamaCppEmbeddings"),
     "hachage": ("lily.core.engines.embeddings.hachage", "HachageEmbeddings"),
+}
+
+SPEAKER_ENGINES: dict[str, tuple[str, str]] = {
+    "spectral": ("lily.core.engines.locuteur.spectral", "SpectralSpeaker"),
+    "onnx": ("lily.core.engines.locuteur.onnx", "OnnxSpeaker"),
 }
 
 WAKE_ENGINES: dict[str, tuple[str, str]] = {
@@ -193,6 +199,43 @@ def build_embeddings(config: Any) -> EmbeddingEngine | None:
     return engine
 
 
+def build_speaker(config: Any) -> SpeakerEngine | None:
+    """Construit l'extracteur de signature vocale décrit par ``[voix]``.
+
+    ``None`` est une réponse normale, pas un échec : sans lui, Lily ne
+    distingue pas les voix et répond à qui l'appelle — c'est le comportement
+    d'avant, et c'est le défaut.
+    """
+    section = dict(config.section("voix"))
+    if not bool(section.pop("actif", False)):
+        return None
+    name = str(section.pop("engine", "spectral"))
+    for cle in ("fichier", "seuil", "echantillons_min", "echantillons_max",
+                "apprentissage_continu", "marge_d_apprentissage"):
+        section.pop(cle, None)
+    chemin = config.resolve_path("voix.model_path")
+    if chemin is not None:
+        section["model_path"] = str(chemin)
+    section.setdefault("sample_rate", int(config.get("audio.sample_rate", 16000)))
+
+    try:
+        engine = _instantiate(SPEAKER_ENGINES, "voix", name, section)
+    except (ConfigError, EngineUnavailable) as exc:
+        logger.warning("%s", exc)
+        return None
+    if not engine.available():
+        logger.warning(
+            "Reconnaissance de la voix demandée mais « %s » est inutilisable : "
+            "Lily répondra à qui l'appelle.", engine.describe(),
+        )
+        raison = engine.unavailable_reason()
+        if raison:
+            logger.warning("→ %s", raison)
+        return None
+    logger.info("Signature vocale : %s", engine.describe())
+    return engine
+
+
 def build_stt(config: Any) -> STTEngine:
     """Construit le moteur de transcription décrit par ``[stt]``.
 
@@ -294,8 +337,9 @@ def build_audio_output(
 
 __all__ = [
     "LLM_ENGINES", "STT_ENGINES", "TTS_ENGINES", "VAD_ENGINES", "WAKE_ENGINES",
+    "SPEAKER_ENGINES",
     "build_llm", "build_stt", "build_tts", "build_vad", "build_wake",
-    "build_audio_input", "build_audio_output", "MemoryAudioOutput",
+    "build_speaker", "build_audio_input", "build_audio_output", "MemoryAudioOutput",
 ]
 
 

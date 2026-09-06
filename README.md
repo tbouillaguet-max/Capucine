@@ -720,6 +720,59 @@ Les garde-fous comptent autant que les mécanismes :
 Chaque mécanisme se coupe séparément dans `[apprentissage]`, et
 `active = false` les coupe tous.
 
+### Ne répondre qu'à VOUS
+
+```
+        [la télévision]  › … et Lily nous racontait que …
+                            (rien : score 0,48, en dessous du seuil)
+Vous  › Lily, quelle heure est-il
+Lily › Il est sept heures dix.
+```
+
+Allumez `[voix] actif = true`, dites trois fois **« apprends ma voix »**, et
+l'énoncé qui suit chaque éveil est comparé à ce qu'elle a appris. En dessous
+du seuil, le tour est abandonné **avant la transcription** — Whisper est
+l'étage le plus cher de la chaîne, il n'a rien à faire sur une voix qui n'est
+pas la vôtre.
+
+L'enrôlement ne fait pas répéter une phrase imposée : c'est ce que vous venez
+de dire qui sert d'échantillon. Ensuite, un énoncé franchement reconnu
+rejoint la référence — votre voix du matin n'est pas celle du soir, et une
+pièce change quand on y met un tapis.
+
+| | |
+|---|---|
+| `apprends ma voix` | ajoute ce que vous venez de dire aux échantillons |
+| `est-ce que tu reconnais ma voix` | l'état, en chiffres : combien d'échantillons, quel seuil |
+| `oublie ma voix` | remet à zéro — après un changement de micro, par exemple |
+| `/voix` | le même état, au clavier |
+
+**Ce que le moteur par défaut sait faire, et ce qu'il ne sait pas.** Il n'y a
+aucune dépendance nouvelle : la signature est un spectre mel, ses MFCC et deux
+mesures de hauteur, en numpy. Mesuré sur des voix synthétiques, en cosinus :
+
+| | score |
+|---|---|
+| vous, d'un énoncé à l'autre | 0,99 |
+| une voix nettement différente | **0,48** — écartée |
+| une voix proche (même registre, formants voisins) | **0,97** — passe |
+
+La dernière ligne est la limite, et elle est dans la nature de la méthode :
+des statistiques de spectre ne sont pas un modèle de locuteur. Pour séparer
+deux voix proches il faut `engine = "onnx"` et un ECAPA-TDNN, un WeSpeaker ou
+un CAM++ que vous fournissez — `onnxruntime` est déjà là pour Silero.
+
+**Quatre garde-fous**, parce qu'un filtre qui décide « ce n'est pas vous »
+peut vous enfermer dehors : éteint par défaut ; sans voix apprise il ne bloque
+rien ; le clavier n'est jamais filtré ; et l'apprentissage continu exige une
+marge au-dessus du seuil — sans quoi chaque voix qui passe de justesse
+tirerait la référence vers elle, et de proche en proche le filtre finirait par
+accepter tout le monde.
+
+Ce n'est **pas de l'authentification**. Une signature vocale se trompe, et un
+enregistrement de votre voix la trompe. Elle écarte le bruit d'une pièce ;
+elle ne garde pas un secret.
+
 ### Ce qu'elle apprend de votre voix
 
 Le modèle « lily » livré est entraîné sur des voix de synthèse

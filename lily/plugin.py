@@ -26,6 +26,7 @@ from .core.plugin import (
     dossier_des_plugins,
     get_config,
     journal,
+    locuteur,
     memoire,
     skill,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "apprentissage",
     "connaissances",
     "corpus",
+    "locuteur",
     "journal",
     "appeler_competence",
     "dossier_des_plugins",

@@ -29,6 +29,7 @@ from .core.engines.factory import (
     build_audio_output,
     build_embeddings,
     build_llm,
+    build_speaker,
     build_stt,
     build_tts,
     build_vad,
@@ -42,6 +43,8 @@ from .core.interfaces.vad import VADEngine
 from .core.interfaces.wake import WakeWordEngine
 from .core.journal import JournalDesAppels
 from .core.listener import BargeInMode, ListenMode, VoiceListener
+from .core.locuteur import Locuteur
+from .core.locuteur import depuis_config as locuteur_depuis_config
 from .core.logging import get_latency_book, get_logger
 from .core.machine import conseils, decrire
 from .core.memoire import Memoire
@@ -56,6 +59,7 @@ from .core.plugin import (
     set_corpus,
     set_dossier_des_plugins,
     set_journal,
+    set_locuteur,
     set_memoire,
     set_model_access,
     set_registre,
@@ -92,12 +96,15 @@ class Assistant:
     corpus: CorpusEveil | None = None
     catalogue: Catalogue | None = None
     journal: JournalDesAppels | None = None
+    locuteur: Locuteur | None = None
 
     async def aclose(self) -> None:
         if self.apprentissage is not None:
             self.apprentissage.fermer()
         if self.connaissances is not None:
             self.connaissances.fermer()
+        if self.locuteur is not None:
+            self.locuteur.fermer()
         if self.corpus is not None:
             # Les fenêtres qu'aucun tour n'a étiquetées ne servent à rien :
             # on ne les garde pas « au cas où ».
@@ -115,6 +122,7 @@ class Assistant:
         set_apprentissage(None)
         set_connaissances(None)
         set_corpus(None)
+        set_locuteur(None)
         set_catalogue(None)
         set_journal(None)
         set_dossier_des_plugins(None)
@@ -169,6 +177,10 @@ def build_assistant(
     # mode lexical — c'est le repli, pas l'absence.
     connaissances = connaissances_depuis_config(config, build_embeddings(config))
     corpus = corpus_depuis_config(config)
+    # Ce qu'elle sait de VOTRE voix. Le moteur est passé plutôt que construit
+    # ici : la fabrique sait déjà décider s'il est utilisable, et le cœur n'a
+    # pas à le refaire.
+    locuteur = locuteur_depuis_config(config, build_speaker(config))
     # Le catalogue d'API : les signatures de VOS fonctions, pour que le
     # modèle appelle ce qui existe au lieu d'inventer ce qui sonne juste.
     # À défaut de racine déclarée, le premier dossier de l'atelier fait
@@ -201,6 +213,7 @@ def build_assistant(
     set_apprentissage(apprentissage)
     set_connaissances(connaissances)
     set_corpus(corpus)
+    set_locuteur(locuteur)
     set_journal(journal)
     set_model_access(_acces_modele(engine))
 
@@ -241,6 +254,7 @@ def build_assistant(
         connaissances=connaissances,
         corpus=corpus,
         journal=journal,
+        locuteur=locuteur,
     )
 
     registry.load_all()
@@ -256,7 +270,7 @@ def build_assistant(
         stt=stt, tts=tts, audio_in=audio_in, audio_out=audio_out,
         memoire=memoire, atelier=atelier, apprentissage=apprentissage,
         connaissances=connaissances, corpus=corpus, journal=journal,
-        catalogue=catalogue,
+        catalogue=catalogue, locuteur=locuteur,
     )
 
 
@@ -385,7 +399,7 @@ def build_listener(
 # --- commandes communes aux deux modes -------------------------------------
 
 AIDE = """Commandes : /aide  /competences  /plugins  /recharge  /latences  /machine
-            /conversations  /reprendre [n]  /memoire  /atelier  /oublie  /quitter
+            /conversations  /reprendre [n]  /memoire  /atelier  /voix  /oublie  /quitter
 En mode vocal, une ligne vide déclenche l'écoute ; tout autre texte est traité
 comme si vous l'aviez dit."""
 
@@ -467,6 +481,11 @@ def _handle_command(assistant: Assistant, line: str) -> bool:
                   "ou lancez avec --atelier CHEMIN.")
         else:
             print(f"Atelier : {assistant.atelier.decrire()}")
+    elif command == "/voix":
+        if assistant.locuteur is None:
+            print("Reconnaissance de la voix absente de cette configuration.")
+        else:
+            print(f"Voix : {assistant.locuteur.etat().decrire()}")
     elif command in ("/oublie", "/clear"):
         assistant.conversation.clear()
         print("Mémoire de conversation vidée.")
@@ -674,6 +693,10 @@ async def _boucle_continue(assistant: Assistant, *, use_wake: bool = True) -> in
         print("Écoute permanente demandée : je réagis à tout ce que j'entends.")
     else:
         print(f"Dites « {mot} » pour me réveiller.")
+        if assistant.locuteur is not None and assistant.locuteur.opere:
+            print("Et je ne répondrai qu'à votre voix.")
+        elif assistant.locuteur is not None and assistant.locuteur.actif:
+            print("Dites « apprends ma voix » quelques fois pour que je vous reconnaisse.")
     print(_decrire_le_suivi(assistant.config))
     print("Tapez une phrase pour me la dire au clavier. /aide, /quitter.\n")
 

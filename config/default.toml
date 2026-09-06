@@ -69,6 +69,39 @@ secondes_avant = 1.6
 secondes_apres = 0.4
 maximum_par_classe = 300   # au-delà, les plus anciens extraits sont effacés
 
+[voix]
+# Ce que Lily sait de VOTRE voix. Allumé et enrôlé, elle compare l'énoncé qui
+# suit chaque éveil à ce qu'elle a appris : un « Lily » venu de la télévision
+# ou d'un invité ne déclenche plus de tour.
+#
+# ÉTEINT PAR DÉFAUT, comme le corpus : un filtre qui décide « ce n'est pas
+# vous » peut vous enfermer dehors. Tant qu'aucune voix n'est apprise, il ne
+# bloque rien — et une phrase tapée au clavier n'est jamais filtrée.
+#
+# Pour l'utiliser : actif = true, puis dites « apprends ma voix » trois fois.
+#
+# Ce n'est PAS de l'authentification : une signature vocale se trompe, et un
+# enregistrement de votre voix la trompe. Elle écarte le bruit d'une pièce.
+actif = false
+engine = "spectral"     # spectral (numpy seul) | onnx (vrai modèle de locuteur)
+# Le seuil de ressemblance. Plus haut = plus sévère, au risque de ne pas vous
+# reconnaître enrhumé. « ma voix » affiche le seuil, le journal affiche le
+# score de chaque refus : réglez sur des mesures, pas au jugé.
+seuil = 0.62
+echantillons_min = 3    # en dessous, le filtre reste inerte
+echantillons_max = 40   # au-delà, les plus anciens ramassés à l'usage partent
+# Un énoncé franchement reconnu rejoint les échantillons : votre voix du matin
+# n'est pas celle du soir, et une pièce change quand on y met un tapis.
+apprentissage_continu = true
+# La marge au-dessus du seuil exigée pour cela. Sans elle, chaque voix qui
+# passe de justesse tirerait la référence vers elle, et de proche en proche
+# le filtre finirait par accepter tout le monde.
+marge_d_apprentissage = 0.10
+# Pour engine = "onnx" — un ECAPA-TDNN, un WeSpeaker ou un CAM++ exporté en
+# ONNX, que vous fournissez : il n'existe pas d'artefact français qui fasse
+# consensus, donc rien n'est téléchargé automatiquement.
+# model_path = "~/.lily/models/locuteur.onnx"
+
 [catalogue]
 # Les signatures de VOS fonctions, montrées au modèle avant qu'il écrive du
 # code. Le mode d'échec numéro un d'un petit modèle sur un dépôt qu'il ne
