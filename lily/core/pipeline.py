@@ -99,6 +99,8 @@ class Pipeline:
         audio_out: AudioOutput | None = None,
         speak: Callable[[str], Any] | None = None,
         on_state: Callable[[State], None] | None = None,
+        on_phrase: Callable[[str], None] | None = None,
+        on_turn: Callable[[TurnResult], None] | None = None,
         announce_new_skills: bool = True,
         max_utterance_s: float = 20.0,
         echo: bool = True,
@@ -148,6 +150,13 @@ class Pipeline:
 
         self._speak = speak
         self._on_state = on_state
+        # Deux observateurs, pour une interface qui montre ce qui se passe
+        # plutôt que d'attendre la fin. `on_phrase` reçoit chaque phrase au
+        # moment où elle part au haut-parleur ; `on_turn` reçoit le tour
+        # complet, y compris ceux que l'interface n'a pas déclenchés — un tour
+        # vocal, une correction, une confirmation.
+        self._on_phrase = on_phrase
+        self._on_turn = on_turn
         self._state = State.IDLE
         self._current: asyncio.Task[Any] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -170,6 +179,24 @@ class Pipeline:
     @property
     def has_voice(self) -> bool:
         return self.tts is not None and self.audio_out is not None
+
+    def _prevenir_de_la_phrase(self, phrase: str) -> None:
+        """Une phrase part au haut-parleur. Un observateur ne casse rien."""
+        if self._on_phrase is None:
+            return
+        try:
+            self._on_phrase(phrase)
+        except Exception:  # pragma: no cover - un observateur ne casse rien
+            logger.exception("Observateur de phrase en échec.")
+
+    def _prevenir_du_tour(self, result: TurnResult) -> TurnResult:
+        """Un tour est terminé, quelle que soit son origine."""
+        if self._on_turn is not None:
+            try:
+                self._on_turn(result)
+            except Exception:  # pragma: no cover - un observateur ne casse rien
+                logger.exception("Observateur de tour en échec.")
+        return result
 
     def _set_state(self, state: State) -> None:
         if state is self._state:
@@ -320,6 +347,7 @@ class Pipeline:
                 if self._barge_in.is_set():
                     interrompu = True
                     break
+                self._prevenir_de_la_phrase(phrase)
                 if self.echo:
                     print(f"Lily › {phrase}")
                 if not await asyncio.to_thread(self._synthetiser_et_jouer, phrase):
@@ -370,6 +398,7 @@ class Pipeline:
             listener.set_mode(ListenMode.PAUSED)
 
     async def _dire_en_texte(self, texte: str) -> None:
+        self._prevenir_de_la_phrase(texte)
         if self._speak is not None:
             resultat = self._speak(texte)
             if asyncio.iscoroutine(resultat):
@@ -590,12 +619,12 @@ class Pipeline:
 
         self.conversation.add_user(result.utterance)
         if await self._traiter_confirmation(result, telemetry):
-            return result
+            return self._prevenir_du_tour(result)
 
         a_corriger = self._preparer_correction(result.utterance)
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
-            return self._echec(result, telemetry)
+            return self._prevenir_du_tour(self._echec(result, telemetry))
 
         result.tier = decision.tier
         result.tool = decision.tool_call
@@ -613,7 +642,7 @@ class Pipeline:
                     )
             except Exception:
                 logger.exception("La génération de la réponse a échoué.")
-                return self._echec(result, telemetry)
+                return self._prevenir_du_tour(self._echec(result, telemetry))
             result.speak = result.display = reponse
             self.conversation.add_assistant(reponse)
 
@@ -624,7 +653,7 @@ class Pipeline:
             ok=result.skill_result.ok if result.skill_result else True,
         )
         self._set_state(State.IDLE)
-        return result
+        return self._prevenir_du_tour(result)
 
     async def handle_and_speak(
         self, utterance: str, telemetry: TurnTelemetry | None = None
@@ -646,14 +675,14 @@ class Pipeline:
         self.conversation.add_user(result.utterance)
         if await self._traiter_confirmation(result, telemetry):
             await self.say(result.speak)
-            return result
+            return self._prevenir_du_tour(result)
 
         a_corriger = self._preparer_correction(result.utterance)
         decision = await self._router(result.utterance, telemetry)
         if decision is None:
             result = self._echec(result, telemetry)
             await self.say(result.speak)
-            return result
+            return self._prevenir_du_tour(result)
 
         result.tier = decision.tier
         result.tool = decision.tool_call
@@ -690,7 +719,7 @@ class Pipeline:
                     logger.exception("La génération de la réponse a échoué.")
                     result = self._echec(result, telemetry)
                     await self.say(result.speak)
-                    return result
+                    return self._prevenir_du_tour(result)
             result.speak = result.display = reponse
             self.conversation.add_assistant(reponse)
             await self.say(reponse)
@@ -704,7 +733,7 @@ class Pipeline:
         )
         self._set_state(State.IDLE)
         await self.drain_announcements()
-        return result
+        return self._prevenir_du_tour(result)
 
     async def voice_turn(self, stop: threading.Event | None = None) -> TurnResult:
         """Un tour vocal complet : écoute, transcription, réflexion, parole."""

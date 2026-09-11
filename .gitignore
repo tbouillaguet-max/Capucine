@@ -24,3 +24,9 @@ htmlcov/
 # voulez les versionner.
 plugins/routine_*.py
 plugins/*.routine-tmp
+
+# L'exécutable Windows et ce que PyInstaller laisse derrière lui : ils se
+# reconstruisent en dix secondes, ils n'ont rien à faire dans le dépôt.
+Lily.exe
+lily.ini
+dist/

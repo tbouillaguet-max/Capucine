@@ -55,6 +55,10 @@ vosk = ["vosk>=0.3.45,<0.4"]
 # Étape 4 — rechargement à chaud.
 reload = ["watchdog>=6,<7"]
 
+# L'application de bureau. Qt est volumineux (~150 Mo) : il reste optionnel,
+# comme tout le reste — `python main.py --text` n'en a pas besoin.
+bureau = ["PySide6>=6.6,<7"]
+
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]

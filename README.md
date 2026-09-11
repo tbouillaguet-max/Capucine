@@ -251,6 +251,69 @@ python main.py --muet                       # ne joue rien : mesure de latence p
 
 ---
 
+## L'application de bureau
+
+```
+python lily_bureau.py
+```
+
+Une fenêtre : à gauche la conversation, à droite le dossier de travail, en
+haut ce qu'elle est en train de faire et deux interrupteurs.
+
+**L'indicateur d'état** est la pièce à laquelle tient le reste. Une assistante
+qui met deux secondes à répondre n'est pas lente, elle est *muette* — et une
+seconde de silence sans explication est plus longue que trois secondes
+expliquées. Les six états ne se distinguent pas par la couleur mais par le
+**mouvement** : un point immobile au repos, un anneau qui s'ouvre quand elle
+écoute, un arc qui tourne quand elle réfléchit, deux arcs quand elle exécute
+une compétence, trois barres qui battent quand elle parle. Le mouvement se lit
+du coin de l'œil, la couleur non — et il ne coûte pas une teinte de plus.
+
+**Deux interrupteurs, pas un.** *Micro* décide si elle écoute ; *Voix* décide
+si elle parle ou se contente d'afficher. On peut donc lui écrire pendant
+qu'elle n'écoute pas, ou la laisser écouter sans qu'elle réponde à voix haute.
+Le micro est **éteint au démarrage** : après le mal qu'on s'est donné pour
+qu'elle n'écoute pas la pièce, l'ouvrir tout seul serait un curieux défaut.
+
+**Les fichiers.** Déposez-les sur la fenêtre : ils sont *copiés* — jamais
+déplacés — dans le dossier de travail, qui est la racine de l'atelier. Ce que
+montre ce panneau est donc exactement ce que Lily a le droit de toucher. Ce
+qu'elle y écrit apparaît avec un point vert. À défaut de `atelier.racines`
+configuré, l'interface ouvre `Documents/Lily`, qu'elle crée : c'est une
+décision assumée, pas un effet de bord, et une racine configurée l'emporte
+toujours.
+
+Sous la réponse, une ligne dit **d'où elle vient** — l'étage qui a tranché, la
+compétence appelée, le temps de réflexion. C'est la différence entre « elle a
+répondu » et « elle a lancé le script, et c'est réglé ».
+
+`Ctrl+M` bascule le micro, `Ctrl+L` vide le fil, `Entrée` envoie et
+`Maj+Entrée` va à la ligne.
+
+### Un exécutable Windows
+
+```powershell
+py -3.11 -m pip install pyinstaller
+py -3.11 deploy\construire_exe.py
+```
+
+`Lily.exe` apparaît à la racine du dépôt. Il est **léger** — une dizaine de
+méga-octets : il ne contient pas Lily, il la trouve et la démarre. `git pull`
+met donc Lily à jour sans qu'on reconstruise quoi que ce soit.
+
+Posez-le où vous voulez ; au premier lancement sans dépôt alentour, il demande
+où elle est installée et retient la réponse dans un `lily.ini` posé à côté de
+lui. S'il ne trouve pas d'environnement Python, il le dit dans une fenêtre
+plutôt que d'échouer en silence — ce qui est la pire façon pour un exécutable
+sans console de rater son démarrage.
+
+Une icône : déposez `deploy/lily.ico` et reconstruisez.
+
+> PyInstaller ne pratique pas la compilation croisée : ce script doit tourner
+> **sous Windows**. Lancé ailleurs, il le dit et s'arrête au lieu de produire
+> un binaire Linux appelé `Lily.exe`.
+
+
 ## Écrire un plugin
 
 Un fichier `.py` dans `plugins/`. C'est tout : pas d'enregistrement, pas
